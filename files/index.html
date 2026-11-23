@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Micky_compressor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Figtree:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="hero"><div class="w">
+  <div class="row"><div class="brand"><i class="mark"></i><span>Micky_compressor</span></div><button class="btn p" id="cfg">Add API keys</button></div>
+  <h1>Drop your images. Get them lighter.</h1>
+  <p>Batch compression with automatic failover across TinyPNG, ImageKit and Cloudinary, plus a built-in browser mode that works with no keys at all.</p>
+</div></header>
+<div class="w">
+
+  <div id="alert" role="alert" hidden><div id="amsg"></div><button class="btn p" id="adm">Dismiss</button></div>
+  <section class="panel chain" id="status" aria-live="polite"></section>
+  <small class="mute" id="live">Idle. Add images to start.</small>
+
+  <section class="panel key row">
+    <span><b>Your API key</b> <code id="key"></code></span>
+    <span><button class="btn" id="kc">Copy</button> <button class="btn" id="kr">Regenerate</button></span>
+  </section>
+
+  <div class="work">
+    <label class="dz" id="dz" for="file" tabindex="0">
+      <span><b>Drop images here</b><br>or click to choose files<br><small class="mute">Batches run one image at a time</small></span>
+    </label>
+    <input type="file" id="file" accept="image/*" multiple hidden>
+    <section class="panel ctl">
+      <label>Quality: <b id="qv">80</b><input type="range" id="q" min="10" max="100" value="80"></label>
+      <label>Maximum width in pixels (0 keeps original)<input type="number" id="mw" min="0" value="0"></label>
+      <label>Output format for local compression
+        <select id="fm"><option value="image/webp">WebP</option><option value="image/jpeg">JPEG</option><option value="keep">Keep original</option></select>
+      </label>
+    </section>
+  </div>
+
+  <div class="row" id="sumrow" hidden>
+    <b class="big" id="sum" style="font-size:20px"></b>
+    <span><button class="btn" id="all">Download all</button> <button class="btn" id="clr">Clear results</button></span>
+  </div>
+  <div class="res" id="res"></div>
+</div>
+
+<dialog id="dlg">
+  <h2 style="margin:0 0 6px;font-size:20px">Provider settings</h2>
+  <p class="mute"><small>Keys are optional: without them images are compressed in your browser. Keys stay in this browser’s localStorage. If a key stops working it is deleted and you are alerted at once. TinyPNG blocks direct browser requests, so use your own CORS proxy as its endpoint.</small></p>
+  <div id="flds"></div>
+  <div class="row" style="margin-top:16px">
+    <button class="btn" id="rst">Reset usage counters</button>
+    <span><button class="btn" id="cls">Cancel</button> <button class="btn p" id="save">Save settings</button></span>
+  </div>
+</dialog>
+
+<script src="script.js"></script>
+</body>
+</html>
