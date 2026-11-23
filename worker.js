@@ -21,7 +21,7 @@ export default {
     }
 
     // 2. Health / Status Check endpoint
-    if (url.pathname === '/api/status' && request.method === 'GET') {
+    if (url.pathname === '/api/status' && (request.method === 'GET' || request.method === 'HEAD')) {
       return new Response(JSON.stringify({
         status: 'online',
         month: new Date().toISOString().slice(0, 7),
