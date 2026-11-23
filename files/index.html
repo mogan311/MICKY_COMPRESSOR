@@ -10,9 +10,15 @@
 </head>
 <body>
 <header class="hero"><div class="w">
-  <div class="row"><div class="brand"><i class="mark"></i><span>Micky_compressor</span></div><button class="btn p" id="cfg">Add API keys</button></div>
+  <div class="row">
+    <div class="brand"><i class="mark"></i><span>Micky_compressor</span></div>
+    <div class="row">
+      <button class="btn" id="docsBtn">Client API Docs</button>
+      <button class="btn p" id="cfg">Provider Settings</button>
+    </div>
+  </div>
   <h1>Drop your images. Get them lighter.</h1>
-  <p>Batch compression with automatic failover across TinyPNG, ImageKit and Cloudinary, plus a built-in browser mode that works with no keys at all.</p>
+  <p>Free-tier image compressor with intelligent failover: TinyPNG (500 free/mo) &rarr; ImageKit (20 GB/mo) &rarr; Offline Canvas. Automatic monthly renewal.</p>
 </div></header>
 <div class="w">
 
@@ -21,8 +27,14 @@
   <small class="mute" id="live">Idle. Add images to start.</small>
 
   <section class="panel key row">
-    <span><b>Your API key</b> <code id="key"></code></span>
-    <span><button class="btn" id="kc">Copy</button> <button class="btn" id="kr">Regenerate</button></span>
+    <div>
+      <b>Your Client API Key:</b> <code id="key"></code>
+      <br><small class="mute">Send this key in the <code>x-api-key</code> header from your client websites to compress images remotely.</small>
+    </div>
+    <span>
+      <button class="btn" id="kc">Copy Key</button> 
+      <button class="btn" id="kr">Regenerate</button>
+    </span>
   </section>
 
   <div class="work">
@@ -46,13 +58,63 @@
   <div class="res" id="res"></div>
 </div>
 
+<!-- Settings Dialog -->
 <dialog id="dlg">
-  <h2 style="margin:0 0 6px;font-size:20px">Provider settings</h2>
-  <p class="mute"><small>Keys are optional: without them images are compressed in your browser. Keys stay in this browser’s localStorage. If a key stops working it is deleted and you are alerted at once. TinyPNG blocks direct browser requests, so use your own CORS proxy as its endpoint.</small></p>
+  <h2 style="margin:0 0 6px;font-size:20px">Provider & Serverless Settings</h2>
+  <p class="mute"><small>For Option 1 (Serverless API), set your backend endpoint URL. The backend reads your Tinify and ImageKit keys from server environment variables safely. Without a backend, images compress directly in browser canvas.</small></p>
   <div id="flds"></div>
   <div class="row" style="margin-top:16px">
     <button class="btn" id="rst">Reset usage counters</button>
     <span><button class="btn" id="cls">Cancel</button> <button class="btn p" id="save">Save settings</button></span>
+  </div>
+</dialog>
+
+<!-- Client API Documentation Dialog -->
+<dialog id="docsDlg" style="width:min(680px,94vw)">
+  <h2 style="margin:0 0 6px;font-size:22px">How to Connect from Client Websites</h2>
+  <p class="mute"><small>Use the code snippets below in your client website to compress images via your Micky Compressor API.</small></p>
+  
+  <div style="margin:16px 0">
+    <h3>1. JavaScript (Fetch API in Client Website)</h3>
+    <pre style="background:#111;color:#a8dba0;padding:12px;border-radius:8px;overflow-x:auto;font-size:12px"><code>// From your client website
+async function compressImage(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('quality', '80');
+
+  const res = await fetch('https://your-domain.com/api/compress', {
+    method: 'POST',
+    headers: {
+      'x-api-key': document.getElementById('key')?.textContent || 'YOUR_CLIENT_API_KEY'
+    },
+    body: formData
+  });
+
+  if (!res.ok) throw new Error('Compression failed: ' + res.statusText);
+  const compressedBlob = await res.blob();
+  return compressedBlob;
+}</code></pre>
+  </div>
+
+  <div style="margin:16px 0">
+    <h3>2. cURL (Terminal / Backend)</h3>
+    <pre style="background:#111;color:#a8dba0;padding:12px;border-radius:8px;overflow-x:auto;font-size:12px"><code>curl -X POST https://your-domain.com/api/compress \
+  -H "x-api-key: YOUR_CLIENT_API_KEY" \
+  -F "file=@photo.jpg" \
+  --output photo-min.jpg</code></pre>
+  </div>
+
+  <div style="margin:16px 0">
+    <h3>3. Automatic Free Monthly Reset</h3>
+    <ul style="font-size:13px;padding-left:18px;line-height:1.6">
+      <li><b>TinyPNG:</b> Free 500 compressions/month. TinyPNG automatically resets the count on the 1st of every month at 00:00 UTC.</li>
+      <li><b>ImageKit:</b> When TinyPNG reaches 500, requests seamlessly fail over to ImageKit (20 GB monthly free bandwidth).</li>
+      <li>When the new month starts, TinyPNG quota is full again and gets prioritized automatically!</li>
+    </ul>
+  </div>
+
+  <div class="row" style="margin-top:16px;justify-content:flex-end">
+    <button class="btn p" id="docsClose">Close</button>
   </div>
 </dialog>
 

@@ -7,59 +7,84 @@ const Store={
 const fmt=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(2)+' MB';
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-/* Mock authentication: key is generated on first load and checked on every compress call */
+/* Authentication & Client API Key: generated on first load and used to authenticate requests */
 const Auth={
   init(){return Store.get('mc_api_key')||this.regen()},
   regen(){const k='micky_live_'+[...crypto.getRandomValues(new Uint8Array(16))].map(x=>x.toString(16).padStart(2,'0')).join('');Store.set('mc_api_key',k);return k},
   check(k){if(!k||k!==Store.get('mc_api_key'))throw Object.assign(new Error('401 Unauthorized: missing or invalid API key'),{code:401})}
 };
 
-/* Monthly usage counters (reset automatically when the month changes) */
+/* Monthly usage counters (automatically resets when the calendar month changes) */
 const Usage={
-  get(){const m=new Date().toISOString().slice(0,7);let u=Store.get('mc_usage');if(!u||u.m!==m)u={m,tinypng:0,imagekit:0,cloudinary:0,local:0};return u},
-  inc(p){const u=this.get();u[p]++;Store.set('mc_usage',u)},
+  get(){
+    const m=new Date().toISOString().slice(0,7);
+    let u=Store.get('mc_usage');
+    // Month has changed: reset counters to full free tier and resurrect killed keys!
+    if(!u||u.m!==m){
+      u={m,tinypng:0,imagekit:0,serverless:0,local:0};
+      Store.set('mc_usage',u);
+      Store.set('mc_killed',{}); // Resurrect TinyPNG and others for the new month
+    }
+    return u;
+  },
+  inc(p){const u=this.get();u[p]=(u[p]||0)+1;Store.set('mc_usage',u)},
   set(p,n){const u=this.get();u[p]=n;Store.set('mc_usage',u)}
 };
 
 const req=async(u,o={})=>{
-  const ac=new AbortController(),t=setTimeout(()=>ac.abort(),20000);
+  const ac=new AbortController(),t=setTimeout(()=>ac.abort(),30000);
   try{
     const r=await fetch(u,{...o,signal:ac.signal});
     if(r.status===429)throw Object.assign(new Error('Rate limited (HTTP 429)'),{code:429});
     if(!r.ok)throw Object.assign(new Error('HTTP '+r.status+' from '+new URL(u,location.href).host),{code:r.status});
     return r;
-  }catch(e){if(e.name==='AbortError')throw Object.assign(new Error('No response after 20 seconds'),{code:'timeout'});throw e}
+  }catch(e){if(e.name==='AbortError')throw Object.assign(new Error('No response after 30 seconds'),{code:'timeout'});throw e}
   finally{clearTimeout(t)}
 };
 const blobOf=async(u,h)=>(await req(u,h&&{headers:h})).blob();
 
-/* Providers, in failover order. skip() returns a reason string, or '' when eligible. */
+/* Providers in failover order: Serverless API (Tinify -> ImageKit) -> Direct TinyPNG -> ImageKit -> Local Canvas */
 const providers=[
- {id:'tinypng',name:'TinyPNG',limit:LIMIT,
-  skip:(c,f,u)=>!c.tinyKey?'Not configured':u.tinypng>=LIMIT?'Limit reached (500)':/^image\/(png|jpeg|webp|avif)$/.test(f.type)?'':'Unsupported type',
+ {id:'serverless',name:'Serverless API (Option 1)',limit:LIMIT,
+  skip:(c,f,u)=>!c.apiEndpoint?'Not configured':u.tinypng>=LIMIT&&!c.ikAuth?'TinyPNG 500 reached':'',
+  async run(f,o,c){
+    const ep=c.apiEndpoint.trim();
+    const fd=new FormData();
+    fd.append('file',f);
+    fd.append('quality',o.quality);
+    const r=await req(ep,{
+      method:'POST',
+      headers:{'x-api-key':Store.get('mc_api_key')},
+      body:fd
+    });
+    const prov=r.headers.get('X-Provider')||'Serverless API';
+    const tinyCount=r.headers.get('X-Monthly-Tinify-Count');
+    if(tinyCount){
+      Usage.set('tinypng',parseInt(tinyCount,10));
+    }
+    const blob=await r.blob();
+    return {blob,provider:prov};
+  }},
+ {id:'tinypng',name:'TinyPNG (Direct)',limit:LIMIT,
+  skip:(c,f,u)=>!c.tinyKey?'Not configured':u.tinypng>=LIMIT?'Limit reached (500/mo)':/^image\/(png|jpeg|webp|avif)$/.test(f.type)?'':'Unsupported type',
   async run(f,o,c){
     const ep=c.tinyEndpoint||'https://api.tinify.com/shrink',h={Authorization:'Basic '+btoa('api:'+c.tinyKey)};
     const j=await(await req(ep,{method:'POST',headers:h,body:f})).json();
-    return blobOf(ep.replace(/\/shrink$/,'')+new URL(j.output.url).pathname,h);
+    const blob=await blobOf(ep.replace(/\/shrink$/,'')+new URL(j.output.url).pathname,h);
+    return {blob,provider:'TinyPNG'};
   }},
- {id:'imagekit',name:'ImageKit',
+ {id:'imagekit',name:'ImageKit (Direct)',
   skip:c=>c.ikPublic&&c.ikAuth?'':'Not configured',
   async run(f,o,c){
-    const a=await(await req(c.ikAuth)).json(); // expects {token, expire, signature}
+    const a=await(await req(c.ikAuth)).json();
     const fd=new FormData();
     fd.append('file',f);fd.append('fileName',f.name);fd.append('publicKey',c.ikPublic);
     fd.append('signature',a.signature);fd.append('expire',a.expire);fd.append('token',a.token);
     const j=await(await req('https://upload.imagekit.io/api/v1/files/upload',{method:'POST',body:fd})).json();
-    return blobOf(`${j.url}?tr=q-${o.quality},f-auto${o.maxW?',w-'+o.maxW:''}`);
+    const blob=await blobOf(`${j.url}?tr=q-${o.quality},f-auto${o.maxW?',w-'+o.maxW:''}`);
+    return {blob,provider:'ImageKit'};
   }},
- {id:'cloudinary',name:'Cloudinary',
-  skip:c=>c.cldName&&c.cldPreset?'':'Not configured',
-  async run(f,o,c){
-    const fd=new FormData();fd.append('file',f);fd.append('upload_preset',c.cldPreset);
-    const j=await(await req(`https://api.cloudinary.com/v1_1/${encodeURIComponent(c.cldName)}/image/upload`,{method:'POST',body:fd})).json();
-    return blobOf(j.secure_url.replace('/upload/',`/upload/q_${o.quality},f_auto${o.maxW?',c_limit,w_'+o.maxW:''}/`));
-  }},
- {id:'local',name:'Browser canvas',
+ {id:'local',name:'Browser Canvas (Offline)',
   skip:()=>'',
   async run(f,o){
     const bmp=await createImageBitmap(f);let w=bmp.width,h=bmp.height;
@@ -68,18 +93,20 @@ const providers=[
     const x=cv.getContext('2d'),type=o.format==='keep'?f.type:o.format;
     if(type==='image/jpeg'){x.fillStyle='#fff';x.fillRect(0,0,w,h)}
     x.drawImage(bmp,0,0,w,h);
-    return new Promise((ok,no)=>cv.toBlob(b=>b?ok(b):no(new Error('Canvas export failed')),type,o.quality/100));
+    const blob=await new Promise((ok,no)=>cv.toBlob(b=>b?ok(b):no(new Error('Canvas export failed')),type,o.quality/100));
+    return {blob,provider:'Browser canvas'};
   }}
 ];
 
-const KEYS={tinypng:['tinyKey'],imagekit:['ikPublic'],cloudinary:['cldPreset']};
+const KEYS={serverless:['apiEndpoint'],tinypng:['tinyKey'],imagekit:['ikPublic']};
 class CompressionManager{
   constructor(onChange){this.onChange=onChange}
-  kill(p,e){ // delete the dead key and alert immediately
+  kill(p,e){
     const c=Store.get('mc_cfg',{}),k=Store.get('mc_killed',{});
-    KEYS[p.id].forEach(f=>c[f]='');k[p.id]=e.message;
+    if(KEYS[p.id]) KEYS[p.id].forEach(f=>c[f]='');
+    k[p.id]=e.message;
     Store.set('mc_cfg',c);Store.set('mc_killed',k);
-    warn(`${p.name} key killed and removed: ${e.message}. This image moved to the next provider. Add a new key in Provider settings to use ${p.name} again.`);
+    warn(`${p.name} issue: ${e.message}. Moving to next provider.`);
   }
   async compress(file,opts,apiKey){
     Auth.check(apiKey);
@@ -88,18 +115,26 @@ class CompressionManager{
       const why=p.skip(c,file,Usage.get());
       if(why){if(why!=='Not configured')log.push(p.name+': '+why);continue}
       try{
-        const blob=await p.run(file,opts,c);
+        const res=await p.run(file,opts,c);
+        const blob=res.blob||res;
+        const providerName=res.provider||p.name;
         Usage.inc(p.id);this.onChange();
         const keep=blob.size>=file.size;
-        return{blob:keep?file:blob,provider:p.name,log,note:keep?'Already optimal, so the original was kept.':''};
+        return{blob:keep?file:blob,provider:providerName,log,note:keep?'Original was already optimal.':''};
       }catch(e){
-        if(e.code===429){if(p.id==='tinypng')Usage.set('tinypng',LIMIT);log.push(p.name+': '+e.message)}
-        else if(p.id!=='local'&&(!e.code||[401,403,'timeout'].includes(e.code)||e.code>=500)){this.kill(p,e);log.push(p.name+': key killed ('+e.message+')')}
-        else log.push(p.name+': '+e.message);
+        if(e.code===429){
+          if(p.id==='tinypng'||p.id==='serverless') Usage.set('tinypng',LIMIT);
+          log.push(p.name+': '+e.message);
+        } else if(p.id!=='local'&&(!e.code||[401,403,'timeout'].includes(e.code)||e.code>=500)){
+          this.kill(p,e);
+          log.push(p.name+': '+e.message);
+        } else {
+          log.push(p.name+': '+e.message);
+        }
         this.onChange();
       }
     }
-    throw new Error('Every provider failed. '+log.join(' '));
+    throw new Error('Every provider failed. '+log.join(' | '));
   }
 }
 const mgr=new CompressionManager(renderStatus);
@@ -109,12 +144,13 @@ window.ImageCompressor={compress:(file,opts,apiKey)=>mgr.compress(file,opts,apiK
 function renderStatus(){
   const c=Store.get('mc_cfg',{}),u=Usage.get();let act=false;
   $('status').innerHTML=providers.map((p,i)=>{
-    const kd=Store.get('mc_killed',{}),w0=p.skip(c,{type:'image/png'},u),why=w0==='Not configured'&&kd[p.id]?'Key killed, add a new one':w0,on=!why&&!act;if(on)act=true;
-    const pct=p.limit?Math.min(100,u[p.id]/p.limit*100):0;
+    const kd=Store.get('mc_killed',{}),w0=p.skip(c,{type:'image/png'},u),why=w0==='Not configured'&&kd[p.id]?'Paused until reset':w0,on=!why&&!act;if(on)act=true;
+    const count=p.id==='serverless'||p.id==='tinypng'?(u.tinypng||0):(u[p.id]||0);
+    const pct=p.limit?Math.min(100,count/p.limit*100):0;
     return `<div class="prov ${on?'on':why?'off':''}"><div><b>${i+1}. ${p.name}</b></div>
-      <div class="tag">${on?'Handling requests':why||'Standing by'}</div>
-      <div class="meter"><i style="width:${p.limit?pct:u[p.id]?100:0}%"></i></div>
-      <small>${p.limit?`${u[p.id]} of ${p.limit} used this month`:`${u[p.id]} images this month`}</small></div>`;
+      <div class="tag">${on?'Active':why||'Ready'}</div>
+      <div class="meter"><i style="width:${p.limit?pct:count?100:0}%"></i></div>
+      <small>${p.limit?`${count} of ${p.limit} used (${u.m})`:`${count} processed (${u.m})`}</small></div>`;
   }).join('');
 }
 
@@ -142,7 +178,7 @@ async function work({f,d}){
     s('.save').textContent='−'+Math.max(0,Math.round((1-r.blob.size/f.size)*100))+'%';
     s('.st').textContent='via '+r.provider;
     const a=s('.dl');a.hidden=false;a.href=url;a.download=f.name.replace(/\.[^.]+$/,'')+'-min.'+(EXT[r.blob.type]||'img');
-    s('.inf').textContent=[r.note,r.log.length?'Fell through: '+r.log.join(' '):''].filter(Boolean).join(' ');
+    s('.inf').textContent=[r.note,r.log.length?'Fallback note: '+r.log.join(' '):''].filter(Boolean).join(' ');
     tot.n++;tot.i+=f.size;tot.o+=r.blob.size;
   }catch(e){s('.st').textContent='Failed';s('.save').textContent='—';s('.inf').textContent=e.message}
   sum();
@@ -170,22 +206,26 @@ $('clr').onclick=()=>{$('res').innerHTML='';tot.n=tot.i=tot.o=0;$('sumrow').hidd
 
 /* API key panel */
 $('key').textContent=Auth.init();
-$('kc').onclick=async()=>{try{await navigator.clipboard.writeText($('key').textContent);$('kc').textContent='Copied'}catch{$('kc').textContent='Copy failed'}setTimeout(()=>$('kc').textContent='Copy',1500)};
+$('kc').onclick=async()=>{try{await navigator.clipboard.writeText($('key').textContent);$('kc').textContent='Copied'}catch{$('kc').textContent='Copy failed'}setTimeout(()=>$('kc').textContent='Copy Key',1500)};
 $('kr').onclick=()=>$('key').textContent=Auth.regen();
+
+/* Docs Dialog */
+$('docsBtn').onclick=()=>$('docsDlg').showModal();
+$('docsClose').onclick=()=>$('docsDlg').close();
 
 /* Settings modal */
 const F=[
- ['TinyPNG (500 free images a month)','tinyKey','API key','password','Get it free at tinypng.com/developers and paste the key here.'],
- [0,'tinyEndpoint','Endpoint or CORS proxy (optional)','url','Browsers block TinyPNG, so enter your own proxy URL ending in /shrink.'],
- ['ImageKit','ikPublic','Public key','text','ImageKit dashboard, Developer options, API keys. Use the public key only.'],
- [0,'ikAuth','Authentication endpoint URL','url','A URL on your own server that signs with your private key and returns token, expire and signature.'],
- ['Cloudinary (unsigned uploads)','cldName','Cloud name','text','Shown at the top of your Cloudinary dashboard.'],
- [0,'cldPreset','Upload preset','text','Settings, Upload, Upload presets. Create one with signing mode set to Unsigned.']];
+ ['Serverless API (Option 1 - Recommended)','apiEndpoint','Worker / Serverless Endpoint URL','url','e.g. /api/compress or https://your-worker.workers.dev/api/compress. Stores Tinify & ImageKit keys securely on server.'],
+ ['Direct TinyPNG (Alternative)','tinyKey','TinyPNG API key','password','Optional: Direct key if not using serverless endpoint.'],
+ [0,'tinyEndpoint','TinyPNG CORS Proxy','url','TinyPNG blocks direct browser requests. Set proxy URL ending in /shrink if using direct mode.'],
+ ['ImageKit (Direct Alternative)','ikPublic','Public Key','text','ImageKit developer public key.'],
+ [0,'ikAuth','Auth Endpoint URL','url','Endpoint that returns token, expire, and signature.']
+];
 $('flds').innerHTML=F.map(([h,k,l,t,i])=>`${h?`<h3>${h}</h3>`:''}<label>${l}<input data-k="${k}" type="${t}" autocomplete="off"><small>${i}</small></label>`).join('');
 $('cfg').onclick=()=>{const c=Store.get('mc_cfg',{});document.querySelectorAll('[data-k]').forEach(i=>i.value=c[i.dataset.k]||'');$('dlg').showModal()};
 $('cls').onclick=()=>$('dlg').close();
 $('save').onclick=()=>{const c={};document.querySelectorAll('[data-k]').forEach(i=>c[i.dataset.k]=i.value.trim());Store.set('mc_cfg',c);Store.set('mc_killed',{});$('dlg').close();renderStatus()};
-$('rst').onclick=()=>{Store.set('mc_usage',null);renderStatus()};
+$('rst').onclick=()=>{Store.set('mc_usage',null);Store.set('mc_killed',{});renderStatus()};
 
 function warn(m){$('alert').hidden=false;const p=document.createElement('p');p.textContent=m;$('amsg').append(p)}
 $('adm').onclick=()=>{$('alert').hidden=true;$('amsg').innerHTML=''};
