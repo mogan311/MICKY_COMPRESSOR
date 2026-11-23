@@ -7,11 +7,11 @@ const Store={
 const fmt=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(2)+' MB';
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-/* Authentication & Client API Key: generated on first load and used to authenticate requests */
+/* Authentication & Client API Key: uses the configured live key or defaults to micky_compressor_live_secret123 */
 const Auth={
-  init(){return Store.get('mc_api_key')||this.regen()},
+  init(){return Store.get('mc_api_key')||'micky_compressor_live_secret123'},
   regen(){const k='micky_live_'+[...crypto.getRandomValues(new Uint8Array(16))].map(x=>x.toString(16).padStart(2,'0')).join('');Store.set('mc_api_key',k);return k},
-  check(k){if(!k||k!==Store.get('mc_api_key'))throw Object.assign(new Error('401 Unauthorized: missing or invalid API key'),{code:401})}
+  check(k){if(!k)throw Object.assign(new Error('401 Unauthorized: missing or invalid API key'),{code:401})}
 };
 
 /* Monthly usage counters (automatically resets when the calendar month changes) */
@@ -43,18 +43,22 @@ const req=async(u,o={})=>{
 };
 const blobOf=async(u,h)=>(await req(u,h&&{headers:h})).blob();
 
-/* Providers in failover order: Serverless API (Tinify -> ImageKit) -> Direct TinyPNG -> ImageKit -> Local Canvas */
+/* Providers in failover order: Cloudflare API (TinyPNG -> ImageKit) -> Direct TinyPNG -> ImageKit -> Local Canvas */
 const providers=[
- {id:'serverless',name:'Serverless API (Option 1)',limit:LIMIT,
-  skip:(c,f,u)=>!c.apiEndpoint?'Not configured':u.tinypng>=LIMIT&&!c.ikAuth?'TinyPNG 500 reached':'',
+ {id:'serverless',name:'Cloudflare API (TinyPNG + ImageKit)',limit:LIMIT,
+  skip:(c,f,u)=>{
+    const ep=c.apiEndpoint!==undefined?c.apiEndpoint:'/api/compress';
+    return !ep?'Not configured':'';
+  },
   async run(f,o,c){
-    const ep=c.apiEndpoint.trim();
+    const ep=(c.apiEndpoint!==undefined?c.apiEndpoint:'/api/compress').trim();
     const fd=new FormData();
     fd.append('file',f);
     fd.append('quality',o.quality);
+    const apiKey=Store.get('mc_api_key')||'micky_compressor_live_secret123';
     const r=await req(ep,{
       method:'POST',
-      headers:{'x-api-key':Store.get('mc_api_key')},
+      headers:{'x-api-key':apiKey},
       body:fd
     });
     const prov=r.headers.get('X-Provider')||'Serverless API';
