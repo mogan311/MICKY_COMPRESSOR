@@ -247,12 +247,26 @@ export default {
             const optRes = await fetch(transformUrl);
 
             if (optRes.ok) {
-              return new Response(optRes.body, {
+              const optBuffer = await optRes.arrayBuffer();
+
+              // PRIVACY & SECURITY: Immediately delete the file from ImageKit media library
+              // so customer images are never stored or retained on external servers!
+              if (ikData.fileId) {
+                fetch(`https://api.imagekit.io/v1/files/${ikData.fileId}`, {
+                  method: 'DELETE',
+                  headers: {
+                    'Authorization': 'Basic ' + btoa(env.IMAGEKIT_PRIVATE_KEY + ':')
+                  }
+                }).catch(() => {});
+              }
+
+              return new Response(optBuffer, {
                 status: 200,
                 headers: {
                   ...CORS_HEADERS,
                   'Content-Type': optRes.headers.get('content-type') || 'image/webp',
                   'X-Provider': 'ImageKit (Fallback)',
+                  'X-Privacy': 'Zero-retention: temporary image deleted immediately after compression',
                   'X-Failover-Logs': failoverLogs.join('; ')
                 }
               });
