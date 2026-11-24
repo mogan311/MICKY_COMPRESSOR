@@ -36,7 +36,7 @@ export default {
       });
     }
 
-    // 3. If request is NOT for /api/compress, serve static website assets (index.html, style.css, script.js)
+    // 3. Serve static website assets (index.html, style.css, script.js)
     if (url.pathname !== '/api/compress' && url.pathname !== '/compress') {
       if (env.ASSETS) {
         return env.ASSETS.fetch(request);
@@ -107,7 +107,6 @@ export default {
         imageBuffer = await file.arrayBuffer();
         if (formData.get('quality')) quality = parseInt(formData.get('quality'), 10) || 80;
       } else {
-        // Raw binary body
         imageBuffer = await request.arrayBuffer();
         if (url.searchParams.get('filename')) filename = url.searchParams.get('filename');
         if (url.searchParams.get('quality')) quality = parseInt(url.searchParams.get('quality'), 10) || 80;
@@ -145,8 +144,8 @@ export default {
             });
 
             if (downloadRes.ok) {
-              const compressedBuffer = await downloadRes.arrayBuffer();
-              return new Response(compressedBuffer, {
+              // Stream response directly to client for optimal speed and zero buffer delay
+              return new Response(downloadRes.body, {
                 status: 200,
                 headers: {
                   ...CORS_HEADERS,
@@ -196,8 +195,7 @@ export default {
             const optRes = await fetch(transformUrl);
 
             if (optRes.ok) {
-              const optBuffer = await optRes.arrayBuffer();
-              return new Response(optBuffer, {
+              return new Response(optRes.body, {
                 status: 200,
                 headers: {
                   ...CORS_HEADERS,
@@ -217,7 +215,6 @@ export default {
         failoverLogs.push('ImageKit not configured in environment');
       }
 
-      // If all providers fail:
       return new Response(JSON.stringify({
         error: 'All compression providers failed or limits exceeded.',
         details: failoverLogs

@@ -47,7 +47,7 @@ const Usage={
 };
 
 const req=async(u,o={})=>{
-  const ac=new AbortController(),t=setTimeout(()=>ac.abort(),30000);
+  const ac=new AbortController(),t=setTimeout(()=>ac.abort(),120000); // 2 minutes for high-res large images
   try{
     const r=await fetch(u,{...o,signal:ac.signal});
     if(r.status===429)throw Object.assign(new Error('Rate limited (HTTP 429)'),{code:429});
@@ -57,7 +57,7 @@ const req=async(u,o={})=>{
       throw Object.assign(new Error(`HTTP ${r.status}${errDetail?' - '+errDetail:''}`),{code:r.status});
     }
     return r;
-  }catch(e){if(e.name==='AbortError')throw Object.assign(new Error('No response after 30 seconds'),{code:'timeout'});throw e}
+  }catch(e){if(e.name==='AbortError')throw Object.assign(new Error('Request timed out after 120 seconds'),{code:'timeout'});throw e}
   finally{clearTimeout(t)}
 };
 const blobOf=async(u,h)=>(await req(u,h&&{headers:h})).blob();
@@ -167,7 +167,7 @@ function sum(){
   $('sum').textContent=`${tot.n} compressed: ${fmt(tot.i)} down to ${fmt(tot.o)}, saved ${pc}%`;
 }
 async function work({f,d}){
-  const s=x=>d.querySelector(x);s('.st').textContent='Compressing…';
+  const s=x=>d.querySelector(x);s('.st').textContent='Compressing via TinyPNG API…';
   try{
     const r=await ImageCompressor.compress(f,opts(),Store.get('mc_api_key')),url=URL.createObjectURL(r.blob);
     s('.aft').src=url;
