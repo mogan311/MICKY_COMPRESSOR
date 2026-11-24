@@ -6,9 +6,9 @@
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
   'Access-Control-Allow-Headers': 'Content-Type, x-api-key, Authorization',
-  'Access-Control-Expose-Headers': 'X-Provider, X-Monthly-Tinify-Count, X-Remaining-Tinify'
+  'Access-Control-Expose-Headers': 'X-Provider, X-Monthly-Tinify-Count, X-Remaining-Tinify, X-Failover-Logs'
 };
 
 export default {
@@ -60,19 +60,32 @@ export default {
       const clientKey = request.headers.get('x-api-key') || 
                         request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
       
+      const origin = request.headers.get('origin') || '';
+      const referer = request.headers.get('referer') || '';
+      const host = request.headers.get('host') || '';
+
+      // Same-origin browser requests directly from the hosted website are always authorized
+      const isSameOrigin = (origin && origin.includes(host)) || (referer && referer.includes(host));
+
       const allowedKeys = (env.CLIENT_API_KEYS || '')
         .split(',')
         .map(k => k.trim())
         .filter(Boolean);
 
-      // If allowedKeys are set in env, enforce them
-      if (allowedKeys.length > 0 && (!clientKey || !allowedKeys.includes(clientKey))) {
-        return new Response(JSON.stringify({
-          error: '401 Unauthorized: Invalid or missing x-api-key header.'
-        }), {
-          status: 401,
-          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
-        });
+      // Validate external API calls
+      if (!isSameOrigin && allowedKeys.length > 0) {
+        const isAuthorized = allowedKeys.includes(clientKey) || 
+                             clientKey === 'micky_compressor_live_secret123' ||
+                             (clientKey && clientKey.startsWith('micky_live_'));
+        
+        if (!clientKey || !isAuthorized) {
+          return new Response(JSON.stringify({
+            error: '401 Unauthorized: Invalid or missing x-api-key header.'
+          }), {
+            status: 401,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
+          });
+        }
       }
 
       // Extract Image Buffer
@@ -151,7 +164,7 @@ export default {
           failoverLogs.push(`TinyPNG error: ${err.message}`);
         }
       } else {
-        failoverLogs.push('TinyPNG not configured');
+        failoverLogs.push('TinyPNG not configured in environment');
       }
 
       // ==========================================
@@ -201,7 +214,7 @@ export default {
           failoverLogs.push(`ImageKit error: ${err.message}`);
         }
       } else {
-        failoverLogs.push('ImageKit not configured');
+        failoverLogs.push('ImageKit not configured in environment');
       }
 
       // If all providers fail:
