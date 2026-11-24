@@ -72,9 +72,13 @@ const providers=[
     fd.append('file',f);
     fd.append('quality',o.quality);
     const key=Store.get('mc_api_key')||DEFAULT_KEY;
+    const adminToken=localStorage.getItem('micky_admin_session')||'';
     const r=await req(ep,{
       method:'POST',
-      headers:{'x-api-key':key},
+      headers:{
+        'x-api-key':key,
+        'x-admin-token':adminToken
+      },
       body:fd
     });
     const prov=r.headers.get('X-Provider')||'Cloudflare API';
@@ -240,3 +244,43 @@ function warn(m){$('alert').hidden=false;const p=document.createElement('p');p.t
 $('adm').onclick=()=>{$('alert').hidden=true;$('amsg').innerHTML=''};
 renderStatus();
 $('res').addEventListener('input',e=>{if(e.target.matches('.cmp input'))e.target.parentNode.style.setProperty('--p',e.target.value+'%')});
+
+/* Admin Authentication Gate */
+const ADMIN_SESSION_KEY = 'micky_admin_session';
+function checkAuthStatus() {
+  const session = localStorage.getItem(ADMIN_SESSION_KEY);
+  if (session === 'micky_auth_kpp_verified') {
+    $('loginOverlay').hidden = true;
+    return true;
+  } else {
+    $('loginOverlay').hidden = false;
+    return false;
+  }
+}
+
+$('loginForm').onsubmit = (e) => {
+  e.preventDefault();
+  const u = $('uname').value.trim();
+  const p = $('pword').value;
+  const errBox = $('loginErr');
+
+  if (u === 'kpp' && p === 'Kpp@2001.') {
+    localStorage.setItem(ADMIN_SESSION_KEY, 'micky_auth_kpp_verified');
+    errBox.style.display = 'none';
+    $('loginOverlay').hidden = true;
+    checkBackendStatus();
+  } else {
+    errBox.textContent = 'Invalid username or password.';
+    errBox.style.display = 'block';
+  }
+};
+
+$('logoutBtn').onclick = () => {
+  localStorage.removeItem(ADMIN_SESSION_KEY);
+  $('uname').value = '';
+  $('pword').value = '';
+  $('loginOverlay').hidden = false;
+};
+
+// Check authentication on initial page load
+checkAuthStatus();

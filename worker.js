@@ -90,36 +90,31 @@ export default {
     }
 
     try {
-      // Validate Client API Key
+      // Validate Client API Key or Admin Login
       const clientKey = request.headers.get('x-api-key') || 
                         request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
-      
-      const origin = request.headers.get('origin') || '';
-      const referer = request.headers.get('referer') || '';
-      const host = request.headers.get('host') || '';
-
-      // Same-origin browser requests directly from the hosted website are always authorized
-      const isSameOrigin = (origin && origin.includes(host)) || (referer && referer.includes(host));
+      const adminToken = request.headers.get('x-admin-token');
+      const isAdmin = adminToken === 'micky_auth_kpp_verified';
 
       const allowedKeys = (env.CLIENT_API_KEYS || '')
         .split(',')
         .map(k => k.trim())
         .filter(Boolean);
 
-      // Validate external API calls
-      if (!isSameOrigin && allowedKeys.length > 0) {
-        const isAuthorized = allowedKeys.includes(clientKey) || 
-                             clientKey === 'micky_compressor_live_secret123' ||
-                             (clientKey && clientKey.startsWith('micky_live_'));
-        
-        if (!clientKey || !isAuthorized) {
-          return new Response(JSON.stringify({
-            error: '401 Unauthorized: Invalid or missing x-api-key header.'
-          }), {
-            status: 401,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
-          });
-        }
+      // Require either verified Admin Login or valid Client API Key
+      const isClientAuthorized = clientKey && (
+        allowedKeys.includes(clientKey) || 
+        clientKey === 'micky_compressor_live_secret123' ||
+        clientKey.startsWith('micky_live_')
+      );
+
+      if (!isAdmin && !isClientAuthorized) {
+        return new Response(JSON.stringify({
+          error: '401 Unauthorized: Admin login or valid x-api-key required.'
+        }), {
+          status: 401,
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
+        });
       }
 
       // Extract Image Buffer

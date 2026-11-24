@@ -15,6 +15,7 @@
     <div class="row">
       <button class="btn" id="docsBtn">Client API Docs</button>
       <button class="btn p" id="cfg">Provider Settings</button>
+      <button class="btn" id="logoutBtn" style="border-color:#d9534f;color:#d9534f">Logout</button>
     </div>
   </div>
   <h1>Drop your images. Get them lighter.</h1>
@@ -117,6 +118,30 @@ async function compressImage(file) {
     <button class="btn p" id="docsClose">Close</button>
   </div>
 </dialog>
+
+<!-- Admin Authentication Gate -->
+<div id="loginOverlay" class="login-overlay">
+  <div class="login-box">
+    <div class="brand" style="justify-content:center;margin-bottom:16px">
+      <i class="mark"></i><span>Micky Compressor</span>
+    </div>
+    <h2 style="margin:0 0 8px;font-size:22px;text-align:center">Admin Access Only</h2>
+    <p class="mute" style="text-align:center;font-size:13px;margin-bottom:18px">Please enter your credentials to unlock the compressor.</p>
+    
+    <form id="loginForm" style="display:grid;gap:14px">
+      <div id="loginErr" style="color:#d9534f;background:#ffefef;padding:8px;border-radius:8px;font-size:13px;font-weight:600;display:none;text-align:center"></div>
+      <label>
+        Username
+        <input type="text" id="uname" autocomplete="username" placeholder="Username" required autofocus>
+      </label>
+      <label>
+        Password
+        <input type="password" id="pword" autocomplete="current-password" placeholder="Password" required>
+      </label>
+      <button type="submit" class="btn p" style="padding:10px;font-size:15px;margin-top:6px;width:100%">Log In</button>
+    </form>
+  </div>
+</div>
 
 <script src="script.js"></script>
 </body>
