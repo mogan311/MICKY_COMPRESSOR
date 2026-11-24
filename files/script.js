@@ -125,17 +125,29 @@ class CompressionManager{
 const mgr=new CompressionManager(renderStatus);
 window.ImageCompressor={compress:(file,opts,apiKey)=>mgr.compress(file,opts,apiKey)};
 
+let backendInfo = null;
+
 /* Live status bar */
 function renderStatus(){
   const c=Store.get('mc_cfg',{apiEndpoint:'/api/compress'}),u=Usage.get();let act=false;
   $('status').innerHTML=providers.map((p,i)=>{
     const w0=p.skip(c,{type:'image/png'},u),on=!w0&&!act;if(on)act=true;
-    const count=p.id==='serverless'?(u.tinypng||0):(u[p.id]||0);
-    const pct=p.limit?Math.min(100,count/p.limit*100):0;
-    return `<div class="prov ${on?'on':w0?'off':''}"><div><b>${i+1}. ${p.name}</b></div>
+    let label = p.name;
+    let max = p.limit;
+    let count = u[p.id] || 0;
+
+    if(p.id === 'serverless' && backendInfo && backendInfo.tinify){
+      const t = backendInfo.tinify;
+      label = `TinyPNG Pool (${t.totalKeys} Key${t.totalKeys > 1 ? 's' : ''})`;
+      max = t.totalCapacity || 475;
+      count = u.tinypng || 0;
+    }
+
+    const pct = max ? Math.min(100, count / max * 100) : 0;
+    return `<div class="prov ${on?'on':w0?'off':''}"><div><b>${i+1}. ${label}</b></div>
       <div class="tag">${on?'Active':w0||'Ready'}</div>
-      <div class="meter"><i style="width:${p.limit?pct:count?100:0}%"></i></div>
-      <small>${p.limit?`${count} of ${p.limit} used (${u.m})`:`${count} processed (${u.m})`}</small></div>`;
+      <div class="meter"><i style="width:${max?pct:count?100:0}%"></i></div>
+      <small>${max?`${count} of ${max} used (${u.m})`:`${count} processed (${u.m})`}</small></div>`;
   }).join('');
 }
 
@@ -144,8 +156,12 @@ async function checkBackendStatus(){
   try{
     const r=await fetch('/api/status');
     if(r.ok){
-      const d=await r.json();
-      $('live').textContent=`Connected to Cloudflare Worker. TinyPNG: ${d.tinifyConfigured?'Ready (500 free/mo)':'Not set'}, ImageKit: ${d.imagekitConfigured?'Ready (20GB/mo)':'Not set'}.`;
+      backendInfo=await r.json();
+      if(backendInfo.tinify && backendInfo.tinify.configured){
+        const t = backendInfo.tinify;
+        $('live').textContent=`Connected to Cloudflare Worker. TinyPNG: ${t.totalKeys} key(s) active (${t.totalCapacity} total monthly capacity, auto-rotates at 475). ImageKit Fallback: ${backendInfo.imagekitConfigured ? 'Ready (20GB)' : 'Not set'}.`;
+      }
+      renderStatus();
     }
   }catch{}
 }

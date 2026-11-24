@@ -1,89 +1,58 @@
 # Micky Compressor (Free-Tier Image Compressor & API)
 
-A free-tier image compression website and API service featuring intelligent failover:
-1. **TinyPNG (Tinify API):** 500 free compressions every month.
-2. **ImageKit API:** 20 GB free bandwidth every month with real-time WebP/AVIF transformations.
-3. **In-Browser Canvas:** Unlimited offline compression fallback.
+A free-tier image compression website and API service featuring intelligent failover & key pooling:
+1. **TinyPNG Key Pool (Rotates at 475 compressions per key):** Add as many free keys as you want! When Key 1 hits 475, it automatically switches to Key 2, Key 3, etc.
+2. **ImageKit API (Fallback):** 20 GB free bandwidth every month with real-time WebP/AVIF transformations when all TinyPNG keys reach 475.
+3. **In-Browser Canvas (Offline):** Unlimited offline compression fallback.
 
 ---
 
-## 1. How Environment Variables Work (Answering Your Doubt)
+## 1. How to Add Multiple TinyPNG Keys (475 Limit Rotation)
 
-> **Doubt:** *"If the API key is uploaded as an environment variable, doesn't the website only read it one time? How can the website work continuously?"*
+You can generate multiple free TinyPNG keys using different emails at [tinify.com/dashboard/api](https://tinify.com/dashboard/api).
 
-### The Answer:
-There are two different types of environments:
+In your **Cloudflare Dashboard**:
+1. Go to **Workers & Pages** &rarr; **`micky-compressor`** &rarr; **Settings** &rarr; **Variables and Secrets**.
+2. Edit **`TINIFY_API_KEY`** (or add **`TINIFY_API_KEYS`**).
+3. Paste your keys separated by commas:
+   ```text
+   key_1_abc123,key_2_def456,key_3_ghi789
+   ```
+4. Click **Deploy / Save**.
 
-1. **Frontend / Static Website (Browser):**
-   * Code in `index.html` runs inside the user's browser (Chrome, Safari, etc.).
-   * If you bake secret keys into browser JavaScript, anyone can inspect the source code and steal your keys.
-2. **Serverless Cloud Runtime (Cloudflare Worker or Vercel Function):**
-   * The environment variables (`TINIFY_API_KEY`, `IMAGEKIT_PRIVATE_KEY`, `CLIENT_API_KEYS`) live on the **Cloud Serverless Runtime**.
-   * It does **NOT** read it just once and die.
-   * Every time your website or any client website sends a request (`POST /api/compress`), the serverless function executes on demand.
-   * On **every single request**, it accesses the current environment variables in real-time.
-   * If you update your API key in the Cloudflare/Vercel dashboard, it takes effect instantly on the next request without needing to rebuild or re-upload your website!
-   * The keys are never sent to the user's browser, so they remain 100% secure.
-
----
-
-## 2. Automatic Monthly Renewal (500 Images / Month)
-
-* **TinyPNG (Tinify):** Gives **500 free compressions per calendar month**.
-  * On every request, Tinify sends back a header: `Compression-Count: X`.
-  * TinyPNG automatically resets this counter back to `0` at **00:00 UTC on the 1st of every calendar month**.
-  * When your usage reaches 500, the system automatically switches to **ImageKit**.
-  * As soon as the new month arrives, the system detects the reset and automatically starts using **TinyPNG** again!
-* **ImageKit:** Resets bandwidth every billing cycle.
+### How It Works:
+* **Key 1:** Handles compressions `1` through `475`.
+* **Key 2:** Once Key 1 hits 475, all requests immediately rotate to Key 2!
+* **Key 3:** When Key 2 hits 475, it rotates to Key 3 (and so on).
+* **ImageKit:** If all your TinyPNG keys reach 475, requests seamlessly fall over to ImageKit (20 GB bandwidth).
+* **1st of Every Month:** At 00:00 UTC on the 1st of the month, TinyPNG resets all keys back to 0. The worker automatically starts from Key 1 again!
 
 ---
 
-## 3. How to Deploy Free (Option 1)
+## 2. Calling from Client Websites
 
-### Quickest: Cloudflare Workers (100,000 requests/day for $0)
-1. Sign up for free at [dash.cloudflare.com](https://dash.cloudflare.com).
-2. Go to **Workers & Pages** -> **Create Application** -> **Create Worker**.
-3. Paste the contents of `worker.js`.
-4. Go to the worker's **Settings -> Variables and Secrets**, and add:
-   * `TINIFY_API_KEY`: Your key from `https://tinify.com/dashboard/api`
-   * `IMAGEKIT_PRIVATE_KEY`: Your private key from `https://imagekit.io/dashboard/developer/api-keys`
-   * `IMAGEKIT_URL_ENDPOINT`: Your endpoint (e.g. `https://ik.imagekit.io/your_id`)
-   * `CLIENT_API_KEYS`: Comma-separated client keys (e.g. `micky_live_default,my_client_key_1`)
-5. Click **Deploy**. Your worker URL will look like:
-   `https://micky-compressor.<your-subdomain>.workers.dev/api/compress`
-6. In your `index.html` website, open **Provider Settings** and paste that Worker URL into **Worker / Serverless Endpoint URL**!
-
----
-
-## 4. How Client Websites Call Your Compressor API
-
-Your other client websites can compress images through your service using simple HTTP requests:
-
-### JavaScript (Client Website / Browser):
+### Client JavaScript:
 ```javascript
 async function compressImage(file) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('quality', '80');
 
-  const response = await fetch('https://your-worker.workers.dev/api/compress', {
+  const response = await fetch('https://micky-compressor.moganjana711.workers.dev/api/compress', {
     method: 'POST',
     headers: {
-      'x-api-key': 'YOUR_CLIENT_API_KEY' // The key generated by your Micky Compressor site
+      'x-api-key': 'micky_compressor_live_secret123'
     },
     body: formData
   });
 
-  if (!response.ok) throw new Error('Failed to compress');
+  if (!response.ok) throw new Error('Compression failed');
   const compressedBlob = await response.blob();
   return compressedBlob;
 }
 ```
 
-### cURL (Terminal / Backend):
-```bash
-curl -X POST https://your-worker.workers.dev/api/compress \
-  -H "x-api-key: YOUR_CLIENT_API_KEY" \
-  -F "file=@sample.png" \
-  --output sample-compressed.png
-```
+### Response Headers:
+* `X-Provider`: e.g. `TinyPNG (Key 1 of 2)` or `ImageKit (Fallback)`
+* `X-Monthly-Tinify-Count`: Total compressions used on the active key this month
+* `X-Remaining-Tinify`: Remaining images on this key before rotating (e.g. `475 - count`)

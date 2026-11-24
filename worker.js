@@ -1,6 +1,6 @@
 /**
  * Cloudflare Worker & API for Micky Compressor
- * Handles failover: Tinify (500 free/mo) -> ImageKit (20GB free/mo)
+ * Handles failover: Multiple TinyPNG keys (rotates at 475 limit) -> ImageKit (20GB free/mo)
  * Also serves the static website frontend automatically!
  */
 
@@ -8,11 +8,24 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
   'Access-Control-Allow-Headers': 'Content-Type, x-api-key, Authorization',
-  'Access-Control-Expose-Headers': 'X-Provider, X-Monthly-Tinify-Count, X-Remaining-Tinify, X-Failover-Logs'
+  'Access-Control-Expose-Headers': 'X-Provider, X-Monthly-Tinify-Count, X-Remaining-Tinify, X-Tinify-Key-Index, X-Total-Tinify-Keys, X-Failover-Logs'
 };
+
+const KEY_LIMIT = 475; // Rotate to next key at 475 compressions
+let memoryUsage = {};
+let currentActiveMonth = '';
+
+function checkMonthReset() {
+  const m = new Date().toISOString().slice(0, 7);
+  if (m !== currentActiveMonth) {
+    currentActiveMonth = m;
+    memoryUsage = {}; // Reset all key usage on the 1st of every calendar month
+  }
+}
 
 export default {
   async fetch(request, env) {
+    checkMonthReset();
     const url = new URL(request.url);
 
     // 1. Handle CORS Preflight
@@ -20,17 +33,38 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
+    // Parse TinyPNG keys (supports single key or comma-separated list of multiple keys)
+    const rawKeys = env.TINIFY_API_KEYS || env.TINIFY_API_KEY || '';
+    const tinyKeys = rawKeys
+      .split(',')
+      .map(k => k.trim())
+      .filter(Boolean);
+
     // 2. Health / Status Check endpoint
     if (url.pathname === '/api/status' && (request.method === 'GET' || request.method === 'HEAD')) {
+      const keysStatus = tinyKeys.map((k, idx) => ({
+        index: idx + 1,
+        keyPreview: k.length > 8 ? k.slice(0, 4) + '...' + k.slice(-4) : 'active',
+        used: memoryUsage[k] || 0,
+        limit: KEY_LIMIT,
+        isFull: (memoryUsage[k] || 0) >= KEY_LIMIT
+      }));
+
+      const totalUsed = Object.values(memoryUsage).reduce((a, b) => a + b, 0);
+
       return new Response(JSON.stringify({
         status: 'online',
-        month: new Date().toISOString().slice(0, 7),
-        tinifyConfigured: Boolean(env.TINIFY_API_KEY),
+        month: currentActiveMonth,
+        tinify: {
+          configured: tinyKeys.length > 0,
+          totalKeys: tinyKeys.length,
+          perKeyLimit: KEY_LIMIT,
+          totalCapacity: tinyKeys.length * KEY_LIMIT,
+          totalUsedThisMonth: totalUsed,
+          keys: keysStatus
+        },
         imagekitConfigured: Boolean(env.IMAGEKIT_PRIVATE_KEY && env.IMAGEKIT_URL_ENDPOINT),
-        limits: {
-          tinify: '500 compressions / month (resets on 1st of every month)',
-          imagekit: '20 GB bandwidth / month'
-        }
+        fallback: 'ImageKit (20 GB bandwidth) when all TinyPNG keys reach 475'
       }), {
         headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
       });
@@ -121,49 +155,67 @@ export default {
 
       const failoverLogs = [];
 
-      // ==========================================
-      // STEP 1: Attempt TinyPNG (Tinify API)
-      // Free Tier: 500 images / month. Resets automatically on 1st of month.
-      // ==========================================
-      if (env.TINIFY_API_KEY) {
+      // ========================================================
+      // STEP 1: Loop Through TinyPNG Keys (Rotate when count >= 475)
+      // ========================================================
+      for (let i = 0; i < tinyKeys.length; i++) {
+        const currentKey = tinyKeys[i];
+        const knownCount = memoryUsage[currentKey] || 0;
+
+        // If this key already reached the 475 limit, skip to the next key!
+        if (knownCount >= KEY_LIMIT) {
+          failoverLogs.push(`TinyPNG Key #${i + 1} reached limit (${knownCount}/${KEY_LIMIT})`);
+          continue;
+        }
+
         try {
           const tinyRes = await fetch('https://api.tinify.com/shrink', {
             method: 'POST',
             headers: {
-              'Authorization': 'Basic ' + btoa('api:' + env.TINIFY_API_KEY)
+              'Authorization': 'Basic ' + btoa('api:' + currentKey)
             },
             body: imageBuffer
           });
 
-          const compressionCount = parseInt(tinyRes.headers.get('Compression-Count') || '0', 10);
+          const countHeader = tinyRes.headers.get('Compression-Count');
+          const count = countHeader ? parseInt(countHeader, 10) : (knownCount + 1);
+          memoryUsage[currentKey] = count;
 
           if (tinyRes.ok) {
             const tinyData = await tinyRes.json();
             const downloadRes = await fetch(tinyData.output.url, {
-              headers: { 'Authorization': 'Basic ' + btoa('api:' + env.TINIFY_API_KEY) }
+              headers: { 'Authorization': 'Basic ' + btoa('api:' + currentKey) }
             });
 
             if (downloadRes.ok) {
-              // Stream response directly to client for optimal speed and zero buffer delay
+              const remainingOnThisKey = Math.max(0, KEY_LIMIT - count);
               return new Response(downloadRes.body, {
                 status: 200,
                 headers: {
                   ...CORS_HEADERS,
                   'Content-Type': tinyData.output.type || 'image/jpeg',
-                  'X-Provider': 'TinyPNG',
-                  'X-Monthly-Tinify-Count': String(compressionCount),
-                  'X-Remaining-Tinify': String(Math.max(0, 500 - compressionCount))
+                  'X-Provider': `TinyPNG (Key ${i + 1} of ${tinyKeys.length})`,
+                  'X-Monthly-Tinify-Count': String(count),
+                  'X-Remaining-Tinify': String(remainingOnThisKey),
+                  'X-Tinify-Key-Index': String(i + 1),
+                  'X-Total-Tinify-Keys': String(tinyKeys.length)
                 }
               });
             }
           }
 
-          failoverLogs.push(`TinyPNG skipped (Status: ${tinyRes.status}, Monthly Count: ${compressionCount})`);
+          // If this key returned rate limit 429 or payment required 402, mark it full and try next key
+          if (tinyRes.status === 429 || tinyRes.status === 402) {
+            memoryUsage[currentKey] = KEY_LIMIT;
+          }
+          failoverLogs.push(`TinyPNG Key #${i + 1} skipped (Status: ${tinyRes.status}, count: ${count})`);
         } catch (err) {
-          failoverLogs.push(`TinyPNG error: ${err.message}`);
+          failoverLogs.push(`TinyPNG Key #${i + 1} error: ${err.message}`);
         }
-      } else {
-        failoverLogs.push('TinyPNG not configured in environment');
+      }
+
+      if (tinyKeys.length === 0) {
+        failoverLogs.push('No TinyPNG keys configured');
       }
 
       // ==========================================
@@ -200,7 +252,7 @@ export default {
                 headers: {
                   ...CORS_HEADERS,
                   'Content-Type': optRes.headers.get('content-type') || 'image/webp',
-                  'X-Provider': 'ImageKit',
+                  'X-Provider': 'ImageKit (Fallback)',
                   'X-Failover-Logs': failoverLogs.join('; ')
                 }
               });
@@ -216,7 +268,7 @@ export default {
       }
 
       return new Response(JSON.stringify({
-        error: 'All compression providers failed or limits exceeded.',
+        error: 'All TinyPNG keys reached the 475 limit and ImageKit fallback failed.',
         details: failoverLogs
       }), {
         status: 502,
