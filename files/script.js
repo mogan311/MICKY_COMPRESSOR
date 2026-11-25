@@ -114,11 +114,34 @@ async function fetchAdminStatus() {
    - Client Websites: TinyPNG Pool via API key
    ------------------------------------------------------------- */
 
-// In-Browser Canvas (Default for public users)
+// Helper to load image safely in browser
+async function loadImageElement(file) {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bmp = await createImageBitmap(file);
+      return { img: bmp, w: bmp.width, h: bmp.height, close: () => bmp.close && bmp.close() };
+    } catch {}
+  }
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve({ img, w: img.naturalWidth || img.width, h: img.naturalHeight || img.height, close: () => {} });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Unsupported or unreadable image file'));
+    };
+    img.src = url;
+  });
+}
+
+// In-Browser Canvas (Default for public users & fast local mode)
 async function compressInBrowser(file, opts) {
-  const bmp = await createImageBitmap(file);
-  let w = bmp.width;
-  let h = bmp.height;
+  const loaded = await loadImageElement(file);
+  let w = loaded.w;
+  let h = loaded.h;
   if (opts.maxW && w > opts.maxW) {
     h = Math.round(h * opts.maxW / w);
     w = opts.maxW;
@@ -127,13 +150,21 @@ async function compressInBrowser(file, opts) {
   cv.width = w;
   cv.height = h;
   const ctx = cv.getContext('2d');
-  const type = opts.format === 'keep' ? file.type : opts.format;
+
+  let type = opts.format === 'keep' ? file.type : opts.format;
+  if (!/^image\/(webp|jpeg|png)$/.test(type)) {
+    type = 'image/webp';
+  }
   if (type === 'image/jpeg') {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, w, h);
   }
-  ctx.drawImage(bmp, 0, 0, w, h);
+  ctx.drawImage(loaded.img, 0, 0, w, h);
+  loaded.close();
+
   const blob = await new Promise((ok, no) => cv.toBlob(b => b ? ok(b) : no(new Error('Canvas export failed')), type, opts.quality / 100));
+  const finalBlob = blob.size < file.size ? blob : file;
+
   const m = new Date().toISOString().slice(0, 7);
   let lu = {};
   try { lu = JSON.parse(localStorage.getItem('micky_local_usage') || '{}'); } catch {}
@@ -141,7 +172,7 @@ async function compressInBrowser(file, opts) {
   lu.count++;
   try { localStorage.setItem('micky_local_usage', JSON.stringify(lu)); } catch {}
   if ($('localCountLabel')) $('localCountLabel').textContent = `${lu.count} processed`;
-  return { blob, provider: 'Browser Canvas (Offline)' };
+  return { blob: finalBlob, provider: 'Browser Canvas (Offline)' };
 }
 
 // Cloudflare API (TinyPNG Pool -> ImageKit failover for Admin & Client API)
@@ -150,25 +181,33 @@ async function compressViaCloudflareAPI(file, opts) {
   fd.append('file', file);
   fd.append('quality', opts.quality);
 
-  const res = await fetch('/api/compress', {
-    method: 'POST',
-    headers: {
-      'x-admin-token': 'micky_auth_kpp_verified',
-      'x-api-key': DEFAULT_CLIENT_KEY
-    },
-    body: fd
-  });
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 90000);
 
-  if (!res.ok) {
-    let err = 'Compression failed';
-    try { const j = await res.json(); err = j.error || err; } catch {}
-    throw new Error(err);
+  try {
+    const res = await fetch('/api/compress', {
+      method: 'POST',
+      headers: {
+        'x-admin-token': 'micky_auth_kpp_verified',
+        'x-api-key': DEFAULT_CLIENT_KEY
+      },
+      body: fd,
+      signal: ac.signal
+    });
+
+    if (!res.ok) {
+      let err = 'Compression failed';
+      try { const j = await res.json(); err = j.error || err; } catch {}
+      throw new Error(err);
+    }
+
+    const prov = res.headers.get('X-Provider') || 'Cloudflare API';
+    const blob = await res.blob();
+    fetchAdminStatus(); // Refresh admin usage numbers live
+    return { blob, provider: prov };
+  } finally {
+    clearTimeout(timer);
   }
-
-  const prov = res.headers.get('X-Provider') || 'Cloudflare API';
-  const blob = await res.blob();
-  fetchAdminStatus(); // Refresh admin usage numbers live
-  return { blob, provider: prov };
 }
 
 // Master Compressor Router
