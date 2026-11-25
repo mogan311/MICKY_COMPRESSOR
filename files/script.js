@@ -134,6 +134,13 @@ async function compressInBrowser(file, opts) {
   }
   ctx.drawImage(bmp, 0, 0, w, h);
   const blob = await new Promise((ok, no) => cv.toBlob(b => b ? ok(b) : no(new Error('Canvas export failed')), type, opts.quality / 100));
+  const m = new Date().toISOString().slice(0, 7);
+  let lu = {};
+  try { lu = JSON.parse(localStorage.getItem('micky_local_usage') || '{}'); } catch {}
+  if (lu.m !== m) lu = { m, count: 0 };
+  lu.count++;
+  try { localStorage.setItem('micky_local_usage', JSON.stringify(lu)); } catch {}
+  if ($('localCountLabel')) $('localCountLabel').textContent = `${lu.count} processed`;
   return { blob, provider: 'Browser Canvas (Offline)' };
 }
 
@@ -194,8 +201,9 @@ const getOptions = () => ({
 
 $('qRange').oninput = () => $('qVal').textContent = $('qRange').value + '%';
 
-// Select images button triggers hidden input
-$('selectBtn').onclick = () => $('fileInput').click();
+// Select images button or studio frame triggers hidden input
+$('selectBtn').onclick = (e) => { e.stopPropagation(); $('fileInput').click(); };
+$('dropArea').onclick = () => $('fileInput').click();
 $('fileInput').onchange = (e) => {
   handleFiles(e.target.files);
   e.target.value = '';

@@ -3,31 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Compress IMAGE - Reduce image file size online</title>
+<title>MICKY.PRESS — Instant Studio Image Compressor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<!-- Top Navigation Bar (iLoveIMG Style) -->
+<!-- Top Studio Navbar -->
 <header class="navbar">
   <div class="nav-container">
     <div class="nav-left">
       <a href="/" class="brand">
-        <span>MICKY</span><span class="brand-heart">♥</span><span class="brand-highlight">IMG</span>
+        <span class="brand-mark">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+        </span>
+        <span>MICKY<span class="brand-dot">.</span>PRESS</span>
       </a>
-      <nav class="nav-links">
-        <a href="#" class="nav-link active">Compress IMAGE</a>
-        <a href="#how" class="nav-link">How it works</a>
-      </nav>
+      <div class="nav-pill">
+        <span class="nav-pill-dot"></span>
+        <span>On-Device Engine</span>
+      </div>
     </div>
+
     <div class="nav-right">
-      <button class="btn-login" id="adminBtn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+      <button class="btn-login" id="adminBtn" type="button">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
         <span id="adminBtnLabel">Admin Login</span>
       </button>
-      <button class="hamburger-btn" id="menuBtn" aria-label="Toggle menu">
+      <button class="hamburger-btn" id="menuBtn" type="button" aria-label="Open menu">
         <span></span>
         <span></span>
         <span></span>
@@ -36,36 +40,47 @@
   </div>
 </header>
 
-<!-- Main Hero Section -->
+<!-- Main Studio Workspace -->
 <main>
-  <section class="hero-section">
-    <h1 class="hero-title">Compress IMAGE</h1>
+  <div class="hero-header">
+    <div class="hero-eyebrow">⚡ Zero Upload • Instant Compression • Unlimited</div>
+    <h1 class="hero-title">Shrink images.<br>Keep every <mark>pixel</mark> crisp.</h1>
     <p class="hero-desc">
-      Compress <span class="format-tag">JPG</span>, <span class="format-tag">PNG</span>, <span class="format-tag">SVG</span> or <span class="format-tag">GIF</span> with the best quality and compression. Reduce the filesize of your images at once.
+      Drop your photos below to compress them instantly right inside your browser—private, lossless-feeling, and unlimited.
     </p>
+  </div>
 
-    <!-- Upload Box & Action Button -->
+  <!-- Studio Viewfinder Frame -->
+  <section class="studio-frame">
     <div class="upload-container" id="dropArea">
       <input type="file" id="fileInput" accept="image/*" multiple hidden>
       <button class="btn-select" id="selectBtn" type="button">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-        Select images
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        Select Images
       </button>
-      <span class="drop-caption">or drop images here</span>
+      <span class="drop-caption">or drag &amp; drop files anywhere on this studio frame</span>
+      <div class="format-pills">
+        <span>JPG</span>
+        <span>PNG</span>
+        <span>WEBP</span>
+        <span>AVIF</span>
+        <span>GIF</span>
+      </div>
     </div>
 
-    <!-- Optional Compression Quality Settings -->
+    <!-- Docked Controls -->
     <div class="controls-bar" id="controlsBar">
       <div class="control-item">
-        <label for="qRange">Quality: <b id="qVal">80%</b></label>
+        <label for="qRange">Quality</label>
         <input type="range" id="qRange" min="10" max="100" value="80" style="width:140px">
+        <span class="control-badge" id="qVal">80%</span>
       </div>
       <div class="control-item">
-        <label for="maxW">Max Width:</label>
-        <input type="number" id="maxW" min="0" value="0" placeholder="0 (Original)" style="width:110px">
+        <label for="maxW">Max Width (px)</label>
+        <input type="number" id="maxW" min="0" value="0" placeholder="0 = Original" style="width:110px">
       </div>
       <div class="control-item">
-        <label for="fmtSel">Format:</label>
+        <label for="fmtSel">Output Format</label>
         <select id="fmtSel">
           <option value="keep">Keep original</option>
           <option value="image/webp" selected>WebP (Smallest)</option>
@@ -80,8 +95,8 @@
     <div class="summary-bar">
       <div class="summary-text" id="summaryText">0 images compressed</div>
       <div class="summary-actions">
-        <button class="btn-primary" id="downloadAllBtn">Download all</button>
-        <button class="btn-secondary" id="clearBtn">Clear results</button>
+        <button class="btn-primary" id="downloadAllBtn" type="button">Download all</button>
+        <button class="btn-secondary" id="clearBtn" type="button">Clear results</button>
       </div>
     </div>
     <div class="cards-grid" id="cardsGrid"></div>
@@ -90,14 +105,14 @@
 
 <!-- Footer -->
 <footer>
-  <p>© MICKY COMPRESSOR — Fast, Secure, and Private Image Optimization</p>
+  <p>MICKY.PRESS — Private Browser Compression Studio</p>
 </footer>
 
 <!-- Admin Login Modal -->
 <dialog class="login-modal" id="loginModal">
   <div class="login-card">
-    <h3>Admin Login</h3>
-    <p>Sign in to view TinyPNG Pool quotas, ImageKit credentials, and Client API keys.</p>
+    <h3>Admin Access</h3>
+    <p>Sign in to view TinyPNG Pool quotas, ImageKit fallback status, and Client API keys.</p>
     <div class="login-error" id="loginErr"></div>
     <form id="loginForm">
       <label>
@@ -108,7 +123,7 @@
         Password
         <input type="password" id="pword" autocomplete="current-password" placeholder="Password" required>
       </label>
-      <button type="submit" class="btn-primary" style="padding:12px;width:100%;font-size:15px;margin-top:4px">Sign In</button>
+      <button type="submit" class="btn-primary" style="padding:11px;width:100%;justify-content:center;font-size:14px;margin-top:4px">Sign In</button>
       <button type="button" class="btn-secondary" id="loginCancelBtn" style="width:100%">Cancel</button>
     </form>
   </div>
@@ -119,27 +134,27 @@
 <aside class="admin-drawer" id="adminDrawer">
   <div class="drawer-header">
     <div class="drawer-title">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
       Admin Control Panel
     </div>
-    <button class="btn-close" id="drawerCloseBtn" aria-label="Close drawer">✕</button>
+    <button class="btn-close" id="drawerCloseBtn" type="button" aria-label="Close drawer">✕</button>
   </div>
   
   <div class="drawer-body">
     <!-- Admin User Status -->
     <div class="admin-box" style="display:flex;align-items:center;justify-content:space-between">
       <div>
-        <div style="font-size:12px;color:var(--muted)">Signed in as</div>
-        <b style="font-size:16px;color:var(--dark)">Administrator (kpp)</b>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted)">Signed in as</div>
+        <b style="font-size:16px;color:var(--ink)">Administrator (kpp)</b>
       </div>
-      <button class="btn-sm" id="logoutBtn" style="color:var(--red);border-color:#fecaca">Logout</button>
+      <button class="btn-sm" id="logoutBtn" type="button" style="background:#fee2e2;color:#b91c1c">Logout</button>
     </div>
 
     <!-- Admin Compression Mode Switch -->
     <div class="admin-box">
       <div class="admin-box-title">Admin Compression Mode</div>
       <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer">
-        <input type="checkbox" id="adminUseTinyPngCheckbox" checked style="width:18px;height:18px;accent-color:var(--primary)">
+        <input type="checkbox" id="adminUseTinyPngCheckbox" checked style="width:18px;height:18px;accent-color:var(--ink)">
         <span>Use <b>TinyPNG Pool API</b> for my browser compressions (Public visitors always use Browser Canvas)</span>
       </label>
     </div>
@@ -148,13 +163,13 @@
     <div class="admin-box">
       <div class="admin-box-title">1. TinyPNG Pool (3 Keys)</div>
       <div style="display:flex;justify-content:space-between;font-size:13px">
-        <span id="tinypngStatusBadge" style="color:var(--green);font-weight:700">Active</span>
-        <span id="tinypngUsageCount">0 of 1425 used</span>
+        <span id="tinypngStatusBadge" style="color:var(--accent-dark);font-weight:700">Active</span>
+        <span id="tinypngUsageCount" style="font-weight:700">0 of 1425 used</span>
       </div>
       <div class="admin-meter">
         <span class="admin-meter-fill" id="tinypngMeterFill" style="width:0%"></span>
       </div>
-      <small style="font-size:12px;color:var(--muted);display:block;line-height:1.4">
+      <small style="font-size:12px;color:var(--ink-soft);display:block;line-height:1.45">
         • Capacity: 3 keys × 475 = 1,425 images/month<br>
         • Automatically rotates to the next key at 475 compressions<br>
         • Resets automatically to 0 on the 1st of every month
@@ -165,10 +180,10 @@
     <div class="admin-box">
       <div class="admin-box-title">2. ImageKit Fallback (Direct)</div>
       <div style="font-size:13px;display:flex;justify-content:space-between">
-        <b style="color:var(--primary)">Configured & Ready</b>
-        <span>20 GB / month</span>
+        <b style="color:var(--accent-dark)">Configured &amp; Ready</b>
+        <span style="font-weight:700">20 GB / month</span>
       </div>
-      <small style="font-size:12px;color:var(--muted);display:block;margin-top:6px;line-height:1.4">
+      <small style="font-size:12px;color:var(--ink-soft);display:block;margin-top:6px;line-height:1.45">
         • Activates automatically if all 3 TinyPNG keys reach 475<br>
         • Zero-retention: temporary image deleted from ImageKit immediately after compression
       </small>
@@ -178,25 +193,25 @@
     <div class="admin-box">
       <div class="admin-box-title">3. Browser Canvas (Offline)</div>
       <div style="font-size:13px;display:flex;justify-content:space-between">
-        <b style="color:var(--green)">Active for all Public Visitors</b>
-        <span id="localCountLabel">0 processed</span>
+        <b style="color:var(--accent-dark)">Active for Public Visitors</b>
+        <span id="localCountLabel" style="font-weight:700">0 processed</span>
       </div>
-      <small style="font-size:12px;color:var(--muted);display:block;margin-top:6px">
-        Public users compress images locally on their device so your TinyPNG & ImageKit credits are preserved 100% for you!
+      <small style="font-size:12px;color:var(--ink-soft);display:block;margin-top:6px">
+        Public users compress images locally on their device so your TinyPNG &amp; ImageKit credits are preserved 100% for you!
       </small>
     </div>
 
     <!-- 4. Client API Key Section -->
     <div class="admin-box">
       <div class="admin-box-title">Client API Key (For Other Websites)</div>
-      <small style="font-size:12px;color:var(--muted)">Pass this key in the <code>x-api-key</code> header from your external client websites to use TinyPNG and ImageKit remotely:</small>
+      <small style="font-size:12px;color:var(--ink-soft)">Pass this key in the <code>x-api-key</code> header from your external client websites to use TinyPNG and ImageKit remotely:</small>
       <div class="key-display">
         <code id="clientApiKey">micky_compressor_live_secret123</code>
-        <button class="btn-sm" id="copyKeyBtn">Copy</button>
+        <button class="btn-sm" id="copyKeyBtn" type="button">Copy</button>
       </div>
       <div style="margin-top:12px">
-        <div style="font-size:12px;font-weight:700;color:var(--dark);margin-bottom:4px">Client cURL Example:</div>
-        <pre style="background:#0f172a;color:#a8dba0;padding:10px;border-radius:6px;font-size:11px;overflow-x:auto"><code>curl -X POST https://micky-compressor.moganjana711.workers.dev/api/compress \
+        <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:4px">Client cURL Example:</div>
+        <pre style="background:#0e1015;color:#c8ff29;padding:10px;border-radius:8px;font-size:11px;overflow-x:auto"><code>curl -X POST https://micky-compressor.moganjana711.workers.dev/api/compress \
   -H "x-api-key: micky_compressor_live_secret123" \
   -F "file=@photo.jpg" \
   --output photo-min.jpg</code></pre>
