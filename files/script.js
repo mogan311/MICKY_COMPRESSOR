@@ -1,286 +1,345 @@
-const $=id=>document.getElementById(id),mem={},LIMIT=500,
-EXT={'image/webp':'webp','image/jpeg':'jpg','image/png':'png','image/avif':'avif','image/gif':'gif'};
-
-const Store={
-  get(k,d){try{const v=localStorage.getItem(k);if(v!==null)return JSON.parse(v)}catch{}return k in mem?mem[k]:d},
-  set(k,v){mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
-};
-
-// Clear any old lockout state so TinyPNG and API are always ready
-Store.set('mc_killed', {});
-
-const fmt=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(2)+' MB';
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-
-/* Authentication & Client API Key: uses the configured live key */
-const DEFAULT_KEY = 'micky_compressor_live_secret123';
-const Auth={
-  init(){
-    let k=Store.get('mc_api_key');
-    if(!k || k.startsWith('micky_live_')){
-      k=DEFAULT_KEY;
-      Store.set('mc_api_key', k);
-    }
-    return k;
-  },
-  regen(){
-    const k='micky_live_'+[...crypto.getRandomValues(new Uint8Array(16))].map(x=>x.toString(16).padStart(2,'0')).join('');
-    Store.set('mc_api_key',k);
-    return k;
-  },
-  check(k){if(!k)throw Object.assign(new Error('Missing API key'),{code:401})}
-};
-
-/* Monthly usage counters */
-const Usage={
-  get(){
-    const m=new Date().toISOString().slice(0,7);
-    let u=Store.get('mc_usage');
-    if(!u||u.m!==m){
-      u={m,tinypng:0,imagekit:0,serverless:0,local:0};
-      Store.set('mc_usage',u);
-    }
-    return u;
-  },
-  inc(p){const u=this.get();u[p]=(u[p]||0)+1;Store.set('mc_usage',u)},
-  set(p,n){const u=this.get();u[p]=n;Store.set('mc_usage',u)}
-};
-
-const req=async(u,o={})=>{
-  const ac=new AbortController(),t=setTimeout(()=>ac.abort(),120000); // 2 minutes for high-res large images
-  try{
-    const r=await fetch(u,{...o,signal:ac.signal});
-    if(r.status===429)throw Object.assign(new Error('Rate limited (HTTP 429)'),{code:429});
-    if(!r.ok){
-      let errDetail='';
-      try{const j=await r.json();errDetail=j.error||'';}catch{}
-      throw Object.assign(new Error(`HTTP ${r.status}${errDetail?' - '+errDetail:''}`),{code:r.status});
-    }
-    return r;
-  }catch(e){if(e.name==='AbortError')throw Object.assign(new Error('Request timed out after 120 seconds'),{code:'timeout'});throw e}
-  finally{clearTimeout(t)}
-};
-const blobOf=async(u,h)=>(await req(u,h&&{headers:h})).blob();
-
-/* Providers in failover order */
-const providers=[
- {id:'serverless',name:'Cloudflare API (TinyPNG + ImageKit)',limit:LIMIT,
-  skip:(c,f,u)=>u.tinypng>=LIMIT?'TinyPNG 500 limit reached':'',
-  async run(f,o,c){
-    const ep=(c.apiEndpoint||'/api/compress').trim();
-    const fd=new FormData();
-    fd.append('file',f);
-    fd.append('quality',o.quality);
-    const key=Store.get('mc_api_key')||DEFAULT_KEY;
-    const adminToken=localStorage.getItem('micky_admin_session')||'';
-    const r=await req(ep,{
-      method:'POST',
-      headers:{
-        'x-api-key':key,
-        'x-admin-token':adminToken
-      },
-      body:fd
-    });
-    const prov=r.headers.get('X-Provider')||'Cloudflare API';
-    const tinyCount=r.headers.get('X-Monthly-Tinify-Count');
-    if(tinyCount){
-      Usage.set('tinypng',parseInt(tinyCount,10));
-    }
-    const blob=await r.blob();
-    return {blob,provider:prov};
-  }},
- {id:'local',name:'Browser Canvas (Offline)',
-  skip:()=>'',
-  async run(f,o){
-    const bmp=await createImageBitmap(f);let w=bmp.width,h=bmp.height;
-    if(o.maxW&&w>o.maxW){h=Math.round(h*o.maxW/w);w=o.maxW}
-    const cv=document.createElement('canvas');cv.width=w;cv.height=h;
-    const x=cv.getContext('2d'),type=o.format==='keep'?f.type:o.format;
-    if(type==='image/jpeg'){x.fillStyle='#fff';x.fillRect(0,0,w,h)}
-    x.drawImage(bmp,0,0,w,h);
-    const blob=await new Promise((ok,no)=>cv.toBlob(b=>b?ok(b):no(new Error('Canvas export failed')),type,o.quality/100));
-    return {blob,provider:'Browser canvas'};
-  }}
-];
-
-class CompressionManager{
-  constructor(onChange){this.onChange=onChange}
-  async compress(file,opts,apiKey){
-    Auth.check(apiKey);
-    const c=Store.get('mc_cfg',{apiEndpoint:'/api/compress'}),log=[];
-    for(const p of providers){
-      const why=p.skip(c,file,Usage.get());
-      if(why){log.push(p.name+': '+why);continue}
-      try{
-        const res=await p.run(file,opts,c);
-        const blob=res.blob||res;
-        const providerName=res.provider||p.name;
-        Usage.inc(p.id);this.onChange();
-        const keep=blob.size>=file.size;
-        return{blob:keep?file:blob,provider:providerName,log,note:keep?'Original was already optimal.':''};
-      }catch(e){
-        log.push(`${p.name} failed (${e.message})`);
-        this.onChange();
-      }
-    }
-    throw new Error('All providers failed: '+log.join(' | '));
-  }
-}
-const mgr=new CompressionManager(renderStatus);
-window.ImageCompressor={compress:(file,opts,apiKey)=>mgr.compress(file,opts,apiKey)};
-
-let backendInfo = null;
-
-/* Live status bar */
-function renderStatus(){
-  const c=Store.get('mc_cfg',{apiEndpoint:'/api/compress'}),u=Usage.get();let act=false;
-  $('status').innerHTML=providers.map((p,i)=>{
-    const w0=p.skip(c,{type:'image/png'},u),on=!w0&&!act;if(on)act=true;
-    let label = p.name;
-    let max = p.limit;
-    let count = u[p.id] || 0;
-
-    if(p.id === 'serverless' && backendInfo && backendInfo.tinify){
-      const t = backendInfo.tinify;
-      label = `TinyPNG Pool (${t.totalKeys} Key${t.totalKeys > 1 ? 's' : ''})`;
-      max = t.totalCapacity || 475;
-      count = u.tinypng || 0;
-    }
-
-    const pct = max ? Math.min(100, count / max * 100) : 0;
-    return `<div class="prov ${on?'on':w0?'off':''}"><div><b>${i+1}. ${label}</b></div>
-      <div class="tag">${on?'Active':w0||'Ready'}</div>
-      <div class="meter"><i style="width:${max?pct:count?100:0}%"></i></div>
-      <small>${max?`${count} of ${max} used (${u.m})`:`${count} processed (${u.m})`}</small></div>`;
-  }).join('');
-}
-
-// Fetch live status from Cloudflare worker on start
-async function checkBackendStatus(){
-  try{
-    const r=await fetch('/api/status');
-    if(r.ok){
-      backendInfo=await r.json();
-      if(backendInfo.tinify && backendInfo.tinify.configured){
-        const t = backendInfo.tinify;
-        $('live').textContent=`Connected to Cloudflare Worker. TinyPNG: ${t.totalKeys} key(s) active (${t.totalCapacity} total monthly capacity, auto-rotates at 475). ImageKit Fallback: ${backendInfo.imagekitConfigured ? 'Ready (20GB)' : 'Not set'}.`;
-      }
-      renderStatus();
-    }
-  }catch{}
-}
-checkBackendStatus();
-
-/* Results dashboard */
-const Q=[],tot={n:0,i:0,o:0};let busy=false;
-const opts=()=>({quality:+$('q').value,maxW:+$('mw').value||0,format:$('fm').value});
-function mk(f){
-  const d=document.createElement('article');d.className='panel item';
-  d.innerHTML=`<div class="row"><b>${esc(f.name)}</b><span class="tag st">Queued</span></div>
-  <div class="cmp"><img src="${URL.createObjectURL(f)}" alt="Before"><img class="aft" alt="After" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="><span class="lb" style="left:8px">Before</span><span class="lb" style="right:8px">After</span><i class="hd"></i><input type="range" min="0" max="100" value="50" aria-label="Drag to compare before and after"></div>
-  <div class="row"><small>Before <b>${fmt(f.size)}</b></small><small class="af">After <b>…</b></small></div>
-  <div class="row"><span class="save">…</span><a class="btn p dl" hidden>Download</a></div><small class="mute inf"></small>`;
-  $('res').prepend(d);return d;
-}
-function sum(){
-  const pc=tot.i?Math.round((1-tot.o/tot.i)*100):0;
-  $('sum').textContent=`${tot.n} compressed: ${fmt(tot.i)} down to ${fmt(tot.o)}, saved ${pc}%`;
-}
-async function work({f,d}){
-  const s=x=>d.querySelector(x);s('.st').textContent='Compressing via TinyPNG API…';
-  try{
-    const r=await ImageCompressor.compress(f,opts(),Store.get('mc_api_key')),url=URL.createObjectURL(r.blob);
-    s('.aft').src=url;
-    s('.af b').textContent=fmt(r.blob.size);
-    s('.save').textContent='−'+Math.max(0,Math.round((1-r.blob.size/f.size)*100))+'%';
-    s('.st').textContent='via '+r.provider;
-    const a=s('.dl');a.hidden=false;a.href=url;a.download=f.name.replace(/\.[^.]+$/,'')+'-min.'+(EXT[r.blob.type]||'img');
-    s('.inf').textContent=[r.note,r.log.length?'Fallback info: '+r.log.join('; '):''].filter(Boolean).join(' ');
-    tot.n++;tot.i+=f.size;tot.o+=r.blob.size;
-  }catch(e){s('.st').textContent='Failed';s('.save').textContent='—';s('.inf').textContent=e.message}
-  sum();
-}
-async function go(){
-  if(busy)return;busy=true;
-  while(Q.length){const j=Q.shift();$('live').textContent=`Compressing ${j.f.name} (${Q.length} waiting)`;await work(j)}
-  busy=false;$('live').textContent='Done. Add more images any time.';
-}
-function add(fs){
-  [...fs].filter(f=>f.type.startsWith('image/')).forEach(f=>Q.push({f,d:mk(f)}));
-  $('sumrow').hidden=false;go();
-}
-
-/* Uploader */
-const dz=$('dz');
-['dragenter','dragover'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.add('over')}));
-['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.remove('over')}));
-dz.addEventListener('drop',e=>add(e.dataTransfer.files));
-dz.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('file').click()}};
-$('file').onchange=e=>{add(e.target.files);e.target.value=''};
-$('q').oninput=()=>$('qv').textContent=$('q').value;
-$('all').onclick=()=>[...document.querySelectorAll('.dl:not([hidden])')].forEach((a,i)=>setTimeout(()=>a.click(),i*300));
-$('clr').onclick=()=>{$('res').innerHTML='';tot.n=tot.i=tot.o=0;$('sumrow').hidden=true};
-
-/* API key panel */
-$('key').textContent=Auth.init();
-$('kc').onclick=async()=>{try{await navigator.clipboard.writeText($('key').textContent);$('kc').textContent='Copied'}catch{$('kc').textContent='Copy failed'}setTimeout(()=>$('kc').textContent='Copy Key',1500)};
-$('kr').onclick=()=>{$('key').textContent=Auth.regen()};
-
-/* Docs Dialog */
-$('docsBtn').onclick=()=>$('docsDlg').showModal();
-$('docsClose').onclick=()=>$('docsDlg').close();
-
-/* Settings modal */
-const F=[
- ['Cloudflare Worker Endpoint','apiEndpoint','Backend Endpoint URL','url','Default is /api/compress. Only change if using an external URL.']
-];
-$('flds').innerHTML=F.map(([h,k,l,t,i])=>`${h?`<h3>${h}</h3>`:''}<label>${l}<input data-k="${k}" type="${t}" autocomplete="off"><small>${i}</small></label>`).join('');
-$('cfg').onclick=()=>{const c=Store.get('mc_cfg',{apiEndpoint:'/api/compress'});document.querySelectorAll('[data-k]').forEach(i=>i.value=c[i.dataset.k]||'');$('dlg').showModal()};
-$('cls').onclick=()=>$('dlg').close();
-$('save').onclick=()=>{const c={};document.querySelectorAll('[data-k]').forEach(i=>c[i.dataset.k]=i.value.trim()||'/api/compress');Store.set('mc_cfg',c);$('dlg').close();renderStatus()};
-$('rst').onclick=()=>{Store.set('mc_usage',null);renderStatus()};
-
-function warn(m){$('alert').hidden=false;const p=document.createElement('p');p.textContent=m;$('amsg').append(p)}
-$('adm').onclick=()=>{$('alert').hidden=true;$('amsg').innerHTML=''};
-renderStatus();
-$('res').addEventListener('input',e=>{if(e.target.matches('.cmp input'))e.target.parentNode.style.setProperty('--p',e.target.value+'%')});
-
-/* Admin Authentication Gate */
+const $ = id => document.getElementById(id);
 const ADMIN_SESSION_KEY = 'micky_admin_session';
-function checkAuthStatus() {
-  const session = localStorage.getItem(ADMIN_SESSION_KEY);
-  if (session === 'micky_auth_kpp_verified') {
-    $('loginOverlay').hidden = true;
-    return true;
+const DEFAULT_CLIENT_KEY = 'micky_compressor_live_secret123';
+const EXT = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/avif': 'avif', 'image/gif': 'gif' };
+
+// Utility formatting
+const fmt = b => b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(2) + ' MB';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* -------------------------------------------------------------
+   1. Authentication & Admin Drawer
+   ------------------------------------------------------------- */
+function isAdmin() {
+  return localStorage.getItem(ADMIN_SESSION_KEY) === 'micky_auth_kpp_verified';
+}
+
+function updateAuthUI() {
+  const adminLoggedIn = isAdmin();
+  if (adminLoggedIn) {
+    $('adminBtnLabel').textContent = 'Admin Panel';
+    $('adminBtn').style.borderColor = 'var(--primary)';
+    $('adminBtn').style.color = 'var(--primary)';
+    fetchAdminStatus();
   } else {
-    $('loginOverlay').hidden = false;
-    return false;
+    $('adminBtnLabel').textContent = 'Admin Login';
+    $('adminBtn').style.borderColor = '';
+    $('adminBtn').style.color = '';
   }
 }
 
+function openAdmin() {
+  if (isAdmin()) {
+    $('adminDrawer').classList.add('open');
+    $('drawerBackdrop').classList.add('open');
+    fetchAdminStatus();
+  } else {
+    $('loginModal').showModal();
+    $('loginErr').style.display = 'none';
+  }
+}
+
+function closeAdminDrawer() {
+  $('adminDrawer').classList.remove('open');
+  $('drawerBackdrop').classList.remove('open');
+}
+
+// Admin Button and Hamburger Triggers
+$('adminBtn').onclick = openAdmin;
+$('menuBtn').onclick = openAdmin;
+$('drawerCloseBtn').onclick = closeAdminDrawer;
+$('drawerBackdrop').onclick = closeAdminDrawer;
+$('loginCancelBtn').onclick = () => $('loginModal').close();
+
+// Login Form Submit (kpp / Kpp@2001.)
 $('loginForm').onsubmit = (e) => {
   e.preventDefault();
   const u = $('uname').value.trim();
   const p = $('pword').value;
-  const errBox = $('loginErr');
 
   if (u === 'kpp' && p === 'Kpp@2001.') {
     localStorage.setItem(ADMIN_SESSION_KEY, 'micky_auth_kpp_verified');
-    errBox.style.display = 'none';
-    $('loginOverlay').hidden = true;
-    checkBackendStatus();
+    $('loginModal').close();
+    updateAuthUI();
+    openAdmin();
   } else {
-    errBox.textContent = 'Invalid username or password.';
-    errBox.style.display = 'block';
+    $('loginErr').textContent = 'Invalid username or password';
+    $('loginErr').style.display = 'block';
   }
 };
 
+// Logout Handler
 $('logoutBtn').onclick = () => {
   localStorage.removeItem(ADMIN_SESSION_KEY);
-  $('uname').value = '';
-  $('pword').value = '';
-  $('loginOverlay').hidden = false;
+  closeAdminDrawer();
+  updateAuthUI();
 };
 
-// Check authentication on initial page load
-checkAuthStatus();
+// 1-Click Copy Client API Key
+$('copyKeyBtn').onclick = async () => {
+  const k = $('clientApiKey').textContent;
+  try {
+    await navigator.clipboard.writeText(k);
+    $('copyKeyBtn').textContent = 'Copied!';
+    setTimeout(() => $('copyKeyBtn').textContent = 'Copy', 1800);
+  } catch {
+    $('copyKeyBtn').textContent = 'Error';
+  }
+};
+
+/* Fetch protected status from Cloudflare worker for Admin Drawer */
+async function fetchAdminStatus() {
+  if (!isAdmin()) return;
+  try {
+    const res = await fetch('/api/status', {
+      headers: { 'x-admin-token': 'micky_auth_kpp_verified' }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.tinify) {
+        const t = data.tinify;
+        $('tinypngUsageCount').textContent = `${t.totalUsedThisMonth} of ${t.totalCapacity} used (${data.month})`;
+        const pct = t.totalCapacity ? Math.min(100, (t.totalUsedThisMonth / t.totalCapacity) * 100) : 0;
+        $('tinypngMeterFill').style.width = pct + '%';
+        $('tinypngStatusBadge').textContent = pct >= 100 ? 'Quota Full (Switched to ImageKit)' : 'Active';
+      }
+    }
+  } catch {}
+}
+
+/* -------------------------------------------------------------
+   2. Compression Engines
+   - Public Visitors: 100% Browser Canvas (Instant, Private, Free)
+   - Admin Users: Option to test TinyPNG Pool API directly
+   - Client Websites: TinyPNG Pool via API key
+   ------------------------------------------------------------- */
+
+// In-Browser Canvas (Default for public users)
+async function compressInBrowser(file, opts) {
+  const bmp = await createImageBitmap(file);
+  let w = bmp.width;
+  let h = bmp.height;
+  if (opts.maxW && w > opts.maxW) {
+    h = Math.round(h * opts.maxW / w);
+    w = opts.maxW;
+  }
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const ctx = cv.getContext('2d');
+  const type = opts.format === 'keep' ? file.type : opts.format;
+  if (type === 'image/jpeg') {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.drawImage(bmp, 0, 0, w, h);
+  const blob = await new Promise((ok, no) => cv.toBlob(b => b ? ok(b) : no(new Error('Canvas export failed')), type, opts.quality / 100));
+  return { blob, provider: 'Browser Canvas (Offline)' };
+}
+
+// Cloudflare API (TinyPNG Pool -> ImageKit failover for Admin & Client API)
+async function compressViaCloudflareAPI(file, opts) {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('quality', opts.quality);
+
+  const res = await fetch('/api/compress', {
+    method: 'POST',
+    headers: {
+      'x-admin-token': 'micky_auth_kpp_verified',
+      'x-api-key': DEFAULT_CLIENT_KEY
+    },
+    body: fd
+  });
+
+  if (!res.ok) {
+    let err = 'Compression failed';
+    try { const j = await res.json(); err = j.error || err; } catch {}
+    throw new Error(err);
+  }
+
+  const prov = res.headers.get('X-Provider') || 'Cloudflare API';
+  const blob = await res.blob();
+  fetchAdminStatus(); // Refresh admin usage numbers live
+  return { blob, provider: prov };
+}
+
+// Master Compressor Router
+async function compressImage(file, opts) {
+  // If user is Admin and explicitly checked "Use TinyPNG Pool API"
+  if (isAdmin() && $('adminUseTinyPngCheckbox')?.checked) {
+    try {
+      return await compressViaCloudflareAPI(file, opts);
+    } catch (e) {
+      console.warn('TinyPNG failed, falling back to local canvas:', e);
+      return await compressInBrowser(file, opts);
+    }
+  }
+  // Public visitors always use browser canvas (0 quota consumed!)
+  return await compressInBrowser(file, opts);
+}
+
+/* -------------------------------------------------------------
+   3. File Upload, UI Controls & Cards Rendering
+   ------------------------------------------------------------- */
+const Q = [];
+const totals = { count: 0, origSize: 0, compSize: 0 };
+let isProcessing = false;
+
+const getOptions = () => ({
+  quality: parseInt($('qRange').value, 10),
+  maxW: parseInt($('maxW').value, 10) || 0,
+  format: $('fmtSel').value
+});
+
+$('qRange').oninput = () => $('qVal').textContent = $('qRange').value + '%';
+
+// Select images button triggers hidden input
+$('selectBtn').onclick = () => $('fileInput').click();
+$('fileInput').onchange = (e) => {
+  handleFiles(e.target.files);
+  e.target.value = '';
+};
+
+// Drag and drop handlers
+const dropArea = $('dropArea');
+['dragenter', 'dragover'].forEach(evt => {
+  window.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropArea.classList.add('dropzone-overlay');
+  });
+});
+['dragleave', 'drop'].forEach(evt => {
+  window.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropArea.classList.remove('dropzone-overlay');
+  });
+});
+window.addEventListener('drop', (e) => {
+  if (e.dataTransfer && e.dataTransfer.files.length) {
+    handleFiles(e.dataTransfer.files);
+  }
+});
+
+function handleFiles(files) {
+  const imgFiles = [...files].filter(f => f.type.startsWith('image/'));
+  if (!imgFiles.length) return;
+  imgFiles.forEach(f => {
+    const cardEl = createCardElement(f);
+    Q.push({ file: f, el: cardEl });
+  });
+  $('resultsSection').hidden = false;
+  processQueue();
+}
+
+function createCardElement(file) {
+  const card = document.createElement('div');
+  card.className = 'image-card';
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="card-title" title="${esc(file.name)}">${esc(file.name)}</div>
+      <span class="card-badge processing">Processing…</span>
+    </div>
+    <div class="cmp">
+      <img src="${URL.createObjectURL(file)}" alt="Before">
+      <img class="aft" alt="After" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
+      <span class="cmp-label" style="left:8px">Before</span>
+      <span class="cmp-label" style="right:8px">After</span>
+      <i class="hd"></i>
+      <input type="range" min="0" max="100" value="50" aria-label="Compare">
+    </div>
+    <div class="card-stats">
+      <span>Before: <b>${fmt(file.size)}</b></span>
+      <span class="after-size">After: <b>…</b></span>
+    </div>
+    <div class="card-footer">
+      <span class="saving-tag">…</span>
+      <a class="btn-primary dl-btn" style="padding:6px 14px;font-size:13px" hidden>Download</a>
+    </div>
+    <div class="card-provider-note"></div>
+  `;
+  $('cardsGrid').prepend(card);
+  return card;
+}
+
+function updateSummary() {
+  const pct = totals.origSize ? Math.round((1 - totals.compSize / totals.origSize) * 100) : 0;
+  $('summaryText').textContent = `${totals.count} image${totals.count > 1 ? 's' : ''} compressed: ${fmt(totals.origSize)} down to ${fmt(totals.compSize)}, saved ${pct}%`;
+}
+
+async function processQueue() {
+  if (isProcessing) return;
+  isProcessing = true;
+
+  while (Q.length > 0) {
+    const item = Q.shift();
+    const { file, el } = item;
+    const badge = el.querySelector('.card-badge');
+    const aftImg = el.querySelector('.aft');
+    const aftSize = el.querySelector('.after-size b');
+    const savingTag = el.querySelector('.saving-tag');
+    const dlBtn = el.querySelector('.dl-btn');
+    const note = el.querySelector('.card-provider-note');
+
+    try {
+      const res = await compressImage(file, getOptions());
+      const url = URL.createObjectURL(res.blob);
+
+      aftImg.src = url;
+      aftSize.textContent = fmt(res.blob.size);
+      
+      const savedPercent = Math.max(0, Math.round((1 - res.blob.size / file.size) * 100));
+      savingTag.textContent = `−${savedPercent}%`;
+      
+      badge.className = 'card-badge done';
+      badge.textContent = 'Ready';
+      
+      dlBtn.hidden = false;
+      dlBtn.href = url;
+      dlBtn.download = file.name.replace(/\.[^.]+$/, '') + '-compressed.' + (EXT[res.blob.type] || 'jpg');
+      
+      if (isAdmin()) {
+        note.textContent = `Processed via ${res.provider}`;
+      }
+
+      totals.count++;
+      totals.origSize += file.size;
+      totals.compSize += res.blob.size;
+      updateSummary();
+    } catch (err) {
+      badge.textContent = 'Failed';
+      badge.style.color = 'var(--red)';
+      savingTag.textContent = '—';
+      note.textContent = err.message;
+    }
+  }
+
+  isProcessing = false;
+}
+
+// Download All Button
+$('downloadAllBtn').onclick = () => {
+  const btns = document.querySelectorAll('.dl-btn:not([hidden])');
+  btns.forEach((btn, idx) => {
+    setTimeout(() => btn.click(), idx * 250);
+  });
+};
+
+// Clear Results Button
+$('clearBtn').onclick = () => {
+  $('cardsGrid').innerHTML = '';
+  totals.count = 0;
+  totals.origSize = 0;
+  totals.compSize = 0;
+  $('resultsSection').hidden = true;
+};
+
+// Before / After Slider interaction
+$('cardsGrid').addEventListener('input', (e) => {
+  if (e.target.matches('.cmp input')) {
+    e.target.parentNode.style.setProperty('--p', e.target.value + '%');
+  }
+});
+
+// Initial UI check
+updateAuthUI();

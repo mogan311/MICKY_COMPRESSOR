@@ -7,7 +7,7 @@
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
-  'Access-Control-Allow-Headers': 'Content-Type, x-api-key, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, x-api-key, x-admin-token, Authorization',
   'Access-Control-Expose-Headers': 'X-Provider, X-Monthly-Tinify-Count, X-Remaining-Tinify, X-Tinify-Key-Index, X-Total-Tinify-Keys, X-Failover-Logs'
 };
 
@@ -40,8 +40,24 @@ export default {
       .map(k => k.trim())
       .filter(Boolean);
 
-    // 2. Health / Status Check endpoint
+    // 2. Health / Status Check endpoint (Protected: only admin or valid API key can see key counts)
     if (url.pathname === '/api/status' && (request.method === 'GET' || request.method === 'HEAD')) {
+      const adminToken = request.headers.get('x-admin-token');
+      const clientKey = request.headers.get('x-api-key');
+      const isAdmin = adminToken === 'micky_auth_kpp_verified';
+      const isClient = clientKey && (clientKey === 'micky_compressor_live_secret123' || (env.CLIENT_API_KEYS && env.CLIENT_API_KEYS.includes(clientKey)));
+
+      if (!isAdmin && !isClient) {
+        // Public sanitized response: no private keys or usage numbers shown
+        return new Response(JSON.stringify({
+          status: 'online',
+          service: 'Micky Compressor'
+        }), {
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Admin or authorized client: return full live pool metrics
       const keysStatus = tinyKeys.map((k, idx) => ({
         index: idx + 1,
         keyPreview: k.length > 8 ? k.slice(0, 4) + '...' + k.slice(-4) : 'active',
@@ -110,7 +126,7 @@ export default {
 
       if (!isAdmin && !isClientAuthorized) {
         return new Response(JSON.stringify({
-          error: '401 Unauthorized: Admin login or valid x-api-key required.'
+          error: '401 Unauthorized: Valid x-api-key header or admin login required to use TinyPNG / ImageKit.'
         }), {
           status: 401,
           headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
@@ -214,7 +230,7 @@ export default {
       }
 
       // ==========================================
-      // STEP 2: Fallback to ImageKit
+      // STEP 2: Fallback to ImageKit (Direct)
       // Free Tier: 20 GB bandwidth per month
       // ==========================================
       if (env.IMAGEKIT_PRIVATE_KEY && env.IMAGEKIT_URL_ENDPOINT) {

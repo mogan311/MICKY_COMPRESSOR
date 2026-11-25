@@ -3,133 +3,103 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Micky_compressor</title>
+<title>Compress IMAGE - Reduce image file size online</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Figtree:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="hero"><div class="w">
-  <div class="row">
-    <div class="brand"><i class="mark"></i><span>Micky_compressor</span></div>
-    <div class="row">
-      <button class="btn" id="docsBtn">Client API Docs</button>
-      <button class="btn p" id="cfg">Provider Settings</button>
-      <button class="btn" id="logoutBtn" style="border-color:#d9534f;color:#d9534f">Logout</button>
+
+<!-- Top Navigation Bar (iLoveIMG Style) -->
+<header class="navbar">
+  <div class="nav-container">
+    <div class="nav-left">
+      <a href="/" class="brand">
+        <span>MICKY</span><span class="brand-heart">♥</span><span class="brand-highlight">IMG</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#" class="nav-link active">Compress IMAGE</a>
+        <a href="#how" class="nav-link">How it works</a>
+      </nav>
+    </div>
+    <div class="nav-right">
+      <button class="btn-login" id="adminBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+        <span id="adminBtnLabel">Admin Login</span>
+      </button>
+      <button class="hamburger-btn" id="menuBtn" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
     </div>
   </div>
-  <h1>Drop your images. Get them lighter.</h1>
-  <p>Free-tier image compressor with intelligent failover: TinyPNG (500 free/mo) &rarr; ImageKit (20 GB/mo) &rarr; Offline Canvas. Automatic monthly renewal.</p>
-</div></header>
-<div class="w">
+</header>
 
-  <div id="alert" role="alert" hidden><div id="amsg"></div><button class="btn p" id="adm">Dismiss</button></div>
-  <section class="panel chain" id="status" aria-live="polite"></section>
-  <small class="mute" id="live">Idle. Add images to start.</small>
+<!-- Main Hero Section -->
+<main>
+  <section class="hero-section">
+    <h1 class="hero-title">Compress IMAGE</h1>
+    <p class="hero-desc">
+      Compress <span class="format-tag">JPG</span>, <span class="format-tag">PNG</span>, <span class="format-tag">SVG</span> or <span class="format-tag">GIF</span> with the best quality and compression. Reduce the filesize of your images at once.
+    </p>
 
-  <section class="panel key row">
-    <div>
-      <b>Your Client API Key:</b> <code id="key"></code>
-      <br><small class="mute">Send this key in the <code>x-api-key</code> header from your client websites to compress images remotely.</small>
+    <!-- Upload Box & Action Button -->
+    <div class="upload-container" id="dropArea">
+      <input type="file" id="fileInput" accept="image/*" multiple hidden>
+      <button class="btn-select" id="selectBtn" type="button">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        Select images
+      </button>
+      <span class="drop-caption">or drop images here</span>
     </div>
-    <span>
-      <button class="btn" id="kc">Copy Key</button> 
-      <button class="btn" id="kr">Regenerate</button>
-    </span>
+
+    <!-- Optional Compression Quality Settings -->
+    <div class="controls-bar" id="controlsBar">
+      <div class="control-item">
+        <label for="qRange">Quality: <b id="qVal">80%</b></label>
+        <input type="range" id="qRange" min="10" max="100" value="80" style="width:140px">
+      </div>
+      <div class="control-item">
+        <label for="maxW">Max Width:</label>
+        <input type="number" id="maxW" min="0" value="0" placeholder="0 (Original)" style="width:110px">
+      </div>
+      <div class="control-item">
+        <label for="fmtSel">Format:</label>
+        <select id="fmtSel">
+          <option value="keep">Keep original</option>
+          <option value="image/webp" selected>WebP (Smallest)</option>
+          <option value="image/jpeg">JPEG</option>
+        </select>
+      </div>
+    </div>
   </section>
 
-  <div class="work">
-    <label class="dz" id="dz" for="file" tabindex="0">
-      <span><b>Drop images here</b><br>or click to choose files<br><small class="mute">Batches run one image at a time</small></span>
-    </label>
-    <input type="file" id="file" accept="image/*" multiple hidden>
-    <section class="panel ctl">
-      <label>Quality: <b id="qv">80</b><input type="range" id="q" min="10" max="100" value="80"></label>
-      <label>Maximum width in pixels (0 keeps original)<input type="number" id="mw" min="0" value="0"></label>
-      <label>Output format for local compression
-        <select id="fm"><option value="image/webp">WebP</option><option value="image/jpeg">JPEG</option><option value="keep">Keep original</option></select>
-      </label>
-    </section>
-  </div>
-
-  <div class="row" id="sumrow" hidden>
-    <b class="big" id="sum" style="font-size:20px"></b>
-    <span><button class="btn" id="all">Download all</button> <button class="btn" id="clr">Clear results</button></span>
-  </div>
-  <div class="res" id="res"></div>
-</div>
-
-<!-- Settings Dialog -->
-<dialog id="dlg">
-  <h2 style="margin:0 0 6px;font-size:20px">Provider & Serverless Settings</h2>
-  <p class="mute"><small>For Option 1 (Serverless API), set your backend endpoint URL. The backend reads your Tinify and ImageKit keys from server environment variables safely. Without a backend, images compress directly in browser canvas.</small></p>
-  <div id="flds"></div>
-  <div class="row" style="margin-top:16px">
-    <button class="btn" id="rst">Reset usage counters</button>
-    <span><button class="btn" id="cls">Cancel</button> <button class="btn p" id="save">Save settings</button></span>
-  </div>
-</dialog>
-
-<!-- Client API Documentation Dialog -->
-<dialog id="docsDlg" style="width:min(680px,94vw)">
-  <h2 style="margin:0 0 6px;font-size:22px">How to Connect from Client Websites</h2>
-  <p class="mute"><small>Use the code snippets below in your client website to compress images via your Micky Compressor API.</small></p>
-  
-  <div style="margin:16px 0">
-    <h3>1. JavaScript (Fetch API in Client Website)</h3>
-    <pre style="background:#111;color:#a8dba0;padding:12px;border-radius:8px;overflow-x:auto;font-size:12px"><code>// From your client website
-async function compressImage(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('quality', '80');
-
-  const res = await fetch('https://your-domain.com/api/compress', {
-    method: 'POST',
-    headers: {
-      'x-api-key': document.getElementById('key')?.textContent || 'YOUR_CLIENT_API_KEY'
-    },
-    body: formData
-  });
-
-  if (!res.ok) throw new Error('Compression failed: ' + res.statusText);
-  const compressedBlob = await res.blob();
-  return compressedBlob;
-}</code></pre>
-  </div>
-
-  <div style="margin:16px 0">
-    <h3>2. cURL (Terminal / Backend)</h3>
-    <pre style="background:#111;color:#a8dba0;padding:12px;border-radius:8px;overflow-x:auto;font-size:12px"><code>curl -X POST https://your-domain.com/api/compress \
-  -H "x-api-key: YOUR_CLIENT_API_KEY" \
-  -F "file=@photo.jpg" \
-  --output photo-min.jpg</code></pre>
-  </div>
-
-  <div style="margin:16px 0">
-    <h3>3. Automatic Free Monthly Reset</h3>
-    <ul style="font-size:13px;padding-left:18px;line-height:1.6">
-      <li><b>TinyPNG:</b> Free 500 compressions/month. TinyPNG automatically resets the count on the 1st of every month at 00:00 UTC.</li>
-      <li><b>ImageKit:</b> When TinyPNG reaches 500, requests seamlessly fail over to ImageKit (20 GB monthly free bandwidth).</li>
-      <li>When the new month starts, TinyPNG quota is full again and gets prioritized automatically!</li>
-    </ul>
-  </div>
-
-  <div class="row" style="margin-top:16px;justify-content:flex-end">
-    <button class="btn p" id="docsClose">Close</button>
-  </div>
-</dialog>
-
-<!-- Admin Authentication Gate -->
-<div id="loginOverlay" class="login-overlay">
-  <div class="login-box">
-    <div class="brand" style="justify-content:center;margin-bottom:16px">
-      <i class="mark"></i><span>Micky Compressor</span>
+  <!-- Results Section -->
+  <section class="results-container" id="resultsSection" hidden>
+    <div class="summary-bar">
+      <div class="summary-text" id="summaryText">0 images compressed</div>
+      <div class="summary-actions">
+        <button class="btn-primary" id="downloadAllBtn">Download all</button>
+        <button class="btn-secondary" id="clearBtn">Clear results</button>
+      </div>
     </div>
-    <h2 style="margin:0 0 8px;font-size:22px;text-align:center">Admin Access Only</h2>
-    <p class="mute" style="text-align:center;font-size:13px;margin-bottom:18px">Please enter your credentials to unlock the compressor.</p>
-    
-    <form id="loginForm" style="display:grid;gap:14px">
-      <div id="loginErr" style="color:#d9534f;background:#ffefef;padding:8px;border-radius:8px;font-size:13px;font-weight:600;display:none;text-align:center"></div>
+    <div class="cards-grid" id="cardsGrid"></div>
+  </section>
+</main>
+
+<!-- Footer -->
+<footer>
+  <p>© MICKY COMPRESSOR — Fast, Secure, and Private Image Optimization</p>
+</footer>
+
+<!-- Admin Login Modal -->
+<dialog class="login-modal" id="loginModal">
+  <div class="login-card">
+    <h3>Admin Login</h3>
+    <p>Sign in to view TinyPNG Pool quotas, ImageKit credentials, and Client API keys.</p>
+    <div class="login-error" id="loginErr"></div>
+    <form id="loginForm">
       <label>
         Username
         <input type="text" id="uname" autocomplete="username" placeholder="Username" required autofocus>
@@ -138,10 +108,102 @@ async function compressImage(file) {
         Password
         <input type="password" id="pword" autocomplete="current-password" placeholder="Password" required>
       </label>
-      <button type="submit" class="btn p" style="padding:10px;font-size:15px;margin-top:6px;width:100%">Log In</button>
+      <button type="submit" class="btn-primary" style="padding:12px;width:100%;font-size:15px;margin-top:4px">Sign In</button>
+      <button type="button" class="btn-secondary" id="loginCancelBtn" style="width:100%">Cancel</button>
     </form>
   </div>
-</div>
+</dialog>
+
+<!-- Admin Slide-Over Drawer -->
+<div class="admin-drawer-backdrop" id="drawerBackdrop"></div>
+<aside class="admin-drawer" id="adminDrawer">
+  <div class="drawer-header">
+    <div class="drawer-title">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+      Admin Control Panel
+    </div>
+    <button class="btn-close" id="drawerCloseBtn" aria-label="Close drawer">✕</button>
+  </div>
+  
+  <div class="drawer-body">
+    <!-- Admin User Status -->
+    <div class="admin-box" style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-size:12px;color:var(--muted)">Signed in as</div>
+        <b style="font-size:16px;color:var(--dark)">Administrator (kpp)</b>
+      </div>
+      <button class="btn-sm" id="logoutBtn" style="color:var(--red);border-color:#fecaca">Logout</button>
+    </div>
+
+    <!-- Admin Compression Mode Switch -->
+    <div class="admin-box">
+      <div class="admin-box-title">Admin Compression Mode</div>
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="adminUseTinyPngCheckbox" checked style="width:18px;height:18px;accent-color:var(--primary)">
+        <span>Use <b>TinyPNG Pool API</b> for my browser compressions (Public visitors always use Browser Canvas)</span>
+      </label>
+    </div>
+
+    <!-- 1. TinyPNG Pool (3 Keys) Live Status -->
+    <div class="admin-box">
+      <div class="admin-box-title">1. TinyPNG Pool (3 Keys)</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px">
+        <span id="tinypngStatusBadge" style="color:var(--green);font-weight:700">Active</span>
+        <span id="tinypngUsageCount">0 of 1425 used</span>
+      </div>
+      <div class="admin-meter">
+        <span class="admin-meter-fill" id="tinypngMeterFill" style="width:0%"></span>
+      </div>
+      <small style="font-size:12px;color:var(--muted);display:block;line-height:1.4">
+        • Capacity: 3 keys × 475 = 1,425 images/month<br>
+        • Automatically rotates to the next key at 475 compressions<br>
+        • Resets automatically to 0 on the 1st of every month
+      </small>
+    </div>
+
+    <!-- 2. ImageKit Direct Fallback -->
+    <div class="admin-box">
+      <div class="admin-box-title">2. ImageKit Fallback (Direct)</div>
+      <div style="font-size:13px;display:flex;justify-content:space-between">
+        <b style="color:var(--primary)">Configured & Ready</b>
+        <span>20 GB / month</span>
+      </div>
+      <small style="font-size:12px;color:var(--muted);display:block;margin-top:6px;line-height:1.4">
+        • Activates automatically if all 3 TinyPNG keys reach 475<br>
+        • Zero-retention: temporary image deleted from ImageKit immediately after compression
+      </small>
+    </div>
+
+    <!-- 3. Browser Canvas (Public Mode) -->
+    <div class="admin-box">
+      <div class="admin-box-title">3. Browser Canvas (Offline)</div>
+      <div style="font-size:13px;display:flex;justify-content:space-between">
+        <b style="color:var(--green)">Active for all Public Visitors</b>
+        <span id="localCountLabel">0 processed</span>
+      </div>
+      <small style="font-size:12px;color:var(--muted);display:block;margin-top:6px">
+        Public users compress images locally on their device so your TinyPNG & ImageKit credits are preserved 100% for you!
+      </small>
+    </div>
+
+    <!-- 4. Client API Key Section -->
+    <div class="admin-box">
+      <div class="admin-box-title">Client API Key (For Other Websites)</div>
+      <small style="font-size:12px;color:var(--muted)">Pass this key in the <code>x-api-key</code> header from your external client websites to use TinyPNG and ImageKit remotely:</small>
+      <div class="key-display">
+        <code id="clientApiKey">micky_compressor_live_secret123</code>
+        <button class="btn-sm" id="copyKeyBtn">Copy</button>
+      </div>
+      <div style="margin-top:12px">
+        <div style="font-size:12px;font-weight:700;color:var(--dark);margin-bottom:4px">Client cURL Example:</div>
+        <pre style="background:#0f172a;color:#a8dba0;padding:10px;border-radius:6px;font-size:11px;overflow-x:auto"><code>curl -X POST https://micky-compressor.moganjana711.workers.dev/api/compress \
+  -H "x-api-key: micky_compressor_live_secret123" \
+  -F "file=@photo.jpg" \
+  --output photo-min.jpg</code></pre>
+      </div>
+    </div>
+  </div>
+</aside>
 
 <script src="script.js"></script>
 </body>
