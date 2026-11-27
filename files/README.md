@@ -1,58 +1,60 @@
-# Micky Compressor (Free-Tier Image Compressor & API)
+# Micky Compressor
 
-A free-tier image compression website and API service featuring intelligent failover & key pooling:
-1. **TinyPNG Key Pool (Rotates at 475 compressions per key):** Add as many free keys as you want! When Key 1 hits 475, it automatically switches to Key 2, Key 3, etc.
-2. **ImageKit API (Fallback):** 20 GB free bandwidth every month with real-time WebP/AVIF transformations when all TinyPNG keys reach 475.
-3. **In-Browser Canvas (Offline):** Unlimited offline compression fallback.
+Private on-device browser image compression studio with an optional Cloudflare Worker Cloud API (`TinyPNG` key pool -> `ImageKit` zero-retention fallback).
 
 ---
 
-## 1. How to Add Multiple TinyPNG Keys (475 Limit Rotation)
+## 1. Reusable Browser Module (`files/compress.js`)
 
-You can generate multiple free TinyPNG keys using different emails at [tinify.com/dashboard/api](https://tinify.com/dashboard/api).
+Any website can import `compress.js` directly without loading Micky Compressor UI, login, or provider credentials.
 
-In your **Cloudflare Dashboard**:
-1. Go to **Workers & Pages** &rarr; **`micky-compressor`** &rarr; **Settings** &rarr; **Variables and Secrets**.
-2. Edit **`TINIFY_API_KEY`** (or add **`TINIFY_API_KEYS`**).
-3. Paste your keys separated by commas:
-   ```text
-   key_1_abc123,key_2_def456,key_3_ghi789
-   ```
-4. Click **Deploy / Save**.
-
-### How It Works:
-* **Key 1:** Handles compressions `1` through `475`.
-* **Key 2:** Once Key 1 hits 475, all requests immediately rotate to Key 2!
-* **Key 3:** When Key 2 hits 475, it rotates to Key 3 (and so on).
-* **ImageKit:** If all your TinyPNG keys reach 475, requests seamlessly fall over to ImageKit (20 GB bandwidth).
-* **1st of Every Month:** At 00:00 UTC on the 1st of the month, TinyPNG resets all keys back to 0. The worker automatically starts from Key 1 again!
-
----
-
-## 2. Calling from Client Websites
-
-### Client JavaScript:
 ```javascript
-async function compressImage(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('quality', '80');
+import { compressImage, getExtensionForMimeType } from './compress.js';
 
-  const response = await fetch('https://micky-compressor.moganjana711.workers.dev/api/compress', {
-    method: 'POST',
-    headers: {
-      'x-api-key': 'micky_compressor_live_secret123'
-    },
-    body: formData
-  });
-
-  if (!response.ok) throw new Error('Compression failed');
-  const compressedBlob = await response.blob();
-  return compressedBlob;
-}
+const result = await compressImage(file, {
+  preset: 'upload-ready', // 1600px longest edge, WebP, 80% quality
+  // maxOutputBytes: 400 * 1024 // optional hard byte ceiling
+});
+// Returns: { blob, mimeType, width, height, inputBytes, outputBytes, elapsedMs }
 ```
 
-### Response Headers:
-* `X-Provider`: e.g. `TinyPNG (Key 1 of 2)` or `ImageKit (Fallback)`
-* `X-Monthly-Tinify-Count`: Total compressions used on the active key this month
-* `X-Remaining-Tinify`: Remaining images on this key before rotating (e.g. `475 - count`)
+See [compress-example.js](./compress-example.js) for a complete `FormData` upload integration example.
+
+### Documented Limits (`LIMITS`)
+- `MAX_INPUT_EDGE`: `16384` px
+- `MAX_INPUT_PIXELS`: `120,000,000` (120 MP)
+- `MIN_QUALITY`: `25` (minimum quality floor during `maxOutputBytes` reduction)
+- `MIN_DIMENSION_SCALE`: `0.35` (35% scale floor of initial target dimensions during `maxOutputBytes` reduction)
+- `MIN_DIMENSION_PX`: `64` px
+
+---
+
+## 2. Cloudflare Worker Setup
+
+Active deployment uses `wrangler.jsonc` (`main: "worker.js"`, `assets.directory: "./files"`).
+
+### Required Secrets (Cloudflare Dashboard or Wrangler CLI)
+Never place secrets in `wrangler.jsonc` or frontend files. Set them as encrypted Cloudflare Worker Secrets:
+
+```bash
+# Client API keys (comma-separated) required in x-api-key header
+npx wrangler secret put CLIENT_API_KEYS
+
+# TinyPNG API keys (comma-separated, auto-rotates at 475/key/month)
+npx wrangler secret put TINIFY_API_KEYS
+
+# ImageKit fallback credentials (zero-retention: deleted immediately after compression)
+npx wrangler secret put IMAGEKIT_PRIVATE_KEY
+npx wrangler secret put IMAGEKIT_URL_ENDPOINT
+```
+
+Optional non-secret environment variables (`wrangler.jsonc` `vars` or Dashboard):
+- `TINIFY_KEY_LIMIT`: default `475`
+- `CLOUD_MONTHLY_LIMIT`: optional monthly total cloud request cap
+- `MAX_UPLOAD_BYTES`: default `33554432` (32 MB)
+
+Deploy:
+```bash
+npx wrangler deploy
+```
+(Or push to `master` if connected to Cloudflare Workers Git integration.)

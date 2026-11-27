@@ -5,8 +5,5 @@
   "compatibility_date": "2024-11-01",
   "assets": {
     "directory": "./files"
-  },
-  "vars": {
-    "CLIENT_API_KEYS": "micky_compressor_live_secret123"
   }
 }

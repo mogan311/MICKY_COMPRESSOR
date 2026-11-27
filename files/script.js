@@ -1,185 +1,224 @@
-const $ = id => document.getElementById(id);
-const ADMIN_SESSION_KEY = 'micky_admin_session';
-const DEFAULT_CLIENT_KEY = 'micky_compressor_live_secret123';
-const EXT = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/avif': 'avif', 'image/gif': 'gif' };
+import { compressImage, getExtensionForMimeType, PRESETS } from './compress.js';
 
-// Utility formatting
+const $ = id => document.getElementById(id);
+const CLOUD_KEY_STORAGE = 'micky_cloud_api_key_session';
+
 const fmt = b => b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(2) + ' MB';
+const fmtTime = ms => ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* -------------------------------------------------------------
-   1. Authentication & Admin Drawer
+   1. Optional Cloud API Drawer (Zero hardcoded secrets)
    ------------------------------------------------------------- */
-function isAdmin() {
-  return localStorage.getItem(ADMIN_SESSION_KEY) === 'micky_auth_kpp_verified';
-}
+let activeApiKey = sessionStorage.getItem(CLOUD_KEY_STORAGE) || '';
+let keyVerified = false;
 
-function updateAuthUI() {
-  const adminLoggedIn = isAdmin();
-  if (adminLoggedIn) {
-    $('adminBtnLabel').textContent = 'Admin Panel';
-    $('adminBtn').style.borderColor = 'var(--primary)';
-    $('adminBtn').style.color = 'var(--primary)';
-    fetchAdminStatus();
-  } else {
-    $('adminBtnLabel').textContent = 'Admin Login';
-    $('adminBtn').style.borderColor = '';
-    $('adminBtn').style.color = '';
+function openCloudDrawer() {
+  $('cloudDrawer').classList.add('open');
+  $('drawerBackdrop').classList.add('open');
+  if (activeApiKey) {
+    $('apiKeyInput').value = activeApiKey;
   }
 }
 
-function openAdmin() {
-  if (isAdmin()) {
-    $('adminDrawer').classList.add('open');
-    $('drawerBackdrop').classList.add('open');
-    fetchAdminStatus();
-  } else {
-    $('loginModal').showModal();
-    $('loginErr').style.display = 'none';
-  }
-}
-
-function closeAdminDrawer() {
-  $('adminDrawer').classList.remove('open');
+function closeCloudDrawer() {
+  $('cloudDrawer').classList.remove('open');
   $('drawerBackdrop').classList.remove('open');
 }
 
-// Admin Button and Hamburger Triggers
-$('adminBtn').onclick = openAdmin;
-$('menuBtn').onclick = openAdmin;
-$('drawerCloseBtn').onclick = closeAdminDrawer;
-$('drawerBackdrop').onclick = closeAdminDrawer;
-$('loginCancelBtn').onclick = () => $('loginModal').close();
+$('cloudBtn').onclick = openCloudDrawer;
+$('menuBtn').onclick = openCloudDrawer;
+$('drawerCloseBtn').onclick = closeCloudDrawer;
+$('drawerBackdrop').onclick = closeCloudDrawer;
 
-// Login Form Submit (kpp / Kpp@2001.)
-$('loginForm').onsubmit = (e) => {
-  e.preventDefault();
-  const u = $('uname').value.trim();
-  const p = $('pword').value;
-
-  if (u === 'kpp' && p === 'Kpp@2001.') {
-    localStorage.setItem(ADMIN_SESSION_KEY, 'micky_auth_kpp_verified');
-    $('loginModal').close();
-    updateAuthUI();
-    openAdmin();
+function updateEngineIndicator() {
+  const cloudEnabled = keyVerified && $('useCloudCheckbox').checked;
+  const pill = $('enginePill');
+  const pillText = $('enginePillText');
+  if (cloudEnabled) {
+    pill.classList.add('cloud-active');
+    pillText.textContent = 'Cloud API Mode';
+    $('cloudBtnLabel').textContent = 'Cloud Active';
   } else {
-    $('loginErr').textContent = 'Invalid username or password';
-    $('loginErr').style.display = 'block';
+    pill.classList.remove('cloud-active');
+    pillText.textContent = 'On-Device Engine';
+    $('cloudBtnLabel').textContent = keyVerified ? 'Cloud Ready' : 'Cloud API';
   }
-};
+}
 
-// Logout Handler
-$('logoutBtn').onclick = () => {
-  localStorage.removeItem(ADMIN_SESSION_KEY);
-  closeAdminDrawer();
-  updateAuthUI();
-};
+function showKeyMessage(text, isOk) {
+  const el = $('apiKeyMsg');
+  el.hidden = false;
+  el.textContent = text;
+  el.className = 'status-msg ' + (isOk ? 'ok' : 'err');
+}
 
-// 1-Click Copy Client API Key
-$('copyKeyBtn').onclick = async () => {
-  const k = $('clientApiKey').textContent;
-  try {
-    await navigator.clipboard.writeText(k);
-    $('copyKeyBtn').textContent = 'Copied!';
-    setTimeout(() => $('copyKeyBtn').textContent = 'Copy', 1800);
-  } catch {
-    $('copyKeyBtn').textContent = 'Error';
-  }
-};
-
-/* Fetch protected status from Cloudflare worker for Admin Drawer */
-async function fetchAdminStatus() {
-  if (!isAdmin()) return;
+async function verifyAndLoadStatus(key) {
+  if (!key) return false;
   try {
     const res = await fetch('/api/status', {
-      headers: { 'x-admin-token': 'micky_auth_kpp_verified' }
+      headers: { 'x-api-key': key }
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.tinify) {
-        const t = data.tinify;
-        $('tinypngUsageCount').textContent = `${t.totalUsedThisMonth} of ${t.totalCapacity} used (${data.month})`;
-        const pct = t.totalCapacity ? Math.min(100, (t.totalUsedThisMonth / t.totalCapacity) * 100) : 0;
-        $('tinypngMeterFill').style.width = pct + '%';
-        $('tinypngStatusBadge').textContent = pct >= 100 ? 'Quota Full (Switched to ImageKit)' : 'Active';
-      }
+    if (!res.ok) {
+      keyVerified = false;
+      $('useCloudCheckbox').checked = false;
+      $('useCloudCheckbox').disabled = true;
+      $('poolStatusBox').hidden = true;
+      sessionStorage.removeItem(CLOUD_KEY_STORAGE);
+      showKeyMessage(`Authorization failed (HTTP ${res.status}). Local mode active.`, false);
+      updateEngineIndicator();
+      return false;
     }
-  } catch {}
+    const data = await res.json();
+    keyVerified = true;
+    activeApiKey = key;
+    sessionStorage.setItem(CLOUD_KEY_STORAGE, key);
+    $('useCloudCheckbox').disabled = false;
+    $('poolStatusBox').hidden = false;
+
+    if (data.tinify) {
+      const t = data.tinify;
+      $('tinypngUsageCount').textContent = `${t.totalUsedThisMonth} of ${t.totalCapacity} used (${data.month})`;
+      const pct = t.totalCapacity ? Math.min(100, (t.totalUsedThisMonth / t.totalCapacity) * 100) : 0;
+      $('tinypngMeterFill').style.width = pct + '%';
+      $('tinypngStatusBadge').textContent = pct >= 100 ? 'Quota Full (ImageKit Fallback)' : `${t.totalKeys} Key(s) Active`;
+      $('poolDetailsText').textContent =
+        `TinyPNG rotates at ${t.perKeyLimit}/key. ImageKit fallback: ${data.imagekitConfigured ? 'Ready' : 'Not configured'}.`;
+    }
+
+    showKeyMessage('API key verified by Worker.', true);
+    updateEngineIndicator();
+    return true;
+  } catch (err) {
+    showKeyMessage(`Status check error: ${err.message}`, false);
+    return false;
+  }
 }
 
-/* -------------------------------------------------------------
-   2. Compression Engines
-   - Public Visitors: 100% Browser Canvas (Instant, Private, Free)
-   - Admin Users: Option to test TinyPNG Pool API directly
-   - Client Websites: TinyPNG Pool via API key
-   ------------------------------------------------------------- */
-
-// Helper to load image safely in browser
-async function loadImageElement(file) {
-  if (typeof createImageBitmap === 'function') {
-    try {
-      const bmp = await createImageBitmap(file);
-      return { img: bmp, w: bmp.width, h: bmp.height, close: () => bmp.close && bmp.close() };
-    } catch {}
+$('apiKeyForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const key = $('apiKeyInput').value.trim();
+  if (!key) {
+    showKeyMessage('Enter an API key first.', false);
+    return;
   }
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve({ img, w: img.naturalWidth || img.width, h: img.naturalHeight || img.height, close: () => {} });
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('Unsupported or unreadable image file'));
-    };
-    img.src = url;
-  });
-}
+  await verifyAndLoadStatus(key);
+};
 
-// In-Browser Canvas (Default for public users & fast local mode)
-async function compressInBrowser(file, opts) {
-  const loaded = await loadImageElement(file);
-  let w = loaded.w;
-  let h = loaded.h;
-  if (opts.maxW && w > opts.maxW) {
-    h = Math.round(h * opts.maxW / w);
-    w = opts.maxW;
-  }
-  const cv = document.createElement('canvas');
-  cv.width = w;
-  cv.height = h;
-  const ctx = cv.getContext('2d');
+$('clearKeyBtn').onclick = () => {
+  activeApiKey = '';
+  keyVerified = false;
+  $('apiKeyInput').value = '';
+  $('useCloudCheckbox').checked = false;
+  $('useCloudCheckbox').disabled = true;
+  $('poolStatusBox').hidden = true;
+  $('apiKeyMsg').hidden = true;
+  sessionStorage.removeItem(CLOUD_KEY_STORAGE);
+  updateEngineIndicator();
+};
 
-  let type = opts.format === 'keep' ? file.type : opts.format;
-  if (!/^image\/(webp|jpeg|png)$/.test(type)) {
-    type = 'image/webp';
-  }
-  if (type === 'image/jpeg') {
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, w, h);
-  }
-  ctx.drawImage(loaded.img, 0, 0, w, h);
-  loaded.close();
+$('useCloudCheckbox').onchange = updateEngineIndicator;
 
-  const blob = await new Promise((ok, no) => cv.toBlob(b => b ? ok(b) : no(new Error('Canvas export failed')), type, opts.quality / 100));
-  const finalBlob = blob.size < file.size ? blob : file;
-
+function incrementLocalUsage() {
   const m = new Date().toISOString().slice(0, 7);
   let lu = {};
   try { lu = JSON.parse(localStorage.getItem('micky_local_usage') || '{}'); } catch {}
   if (lu.m !== m) lu = { m, count: 0 };
   lu.count++;
   try { localStorage.setItem('micky_local_usage', JSON.stringify(lu)); } catch {}
-  if ($('localCountLabel')) $('localCountLabel').textContent = `${lu.count} processed`;
-  return { blob: finalBlob, provider: 'Browser Canvas (Offline)' };
+  if ($('localCountLabel')) $('localCountLabel').textContent = `${lu.count} (${m})`;
 }
 
-// Cloudflare API (TinyPNG Pool -> ImageKit failover for Admin & Client API)
-async function compressViaCloudflareAPI(file, opts) {
+function renderLocalUsage() {
+  const m = new Date().toISOString().slice(0, 7);
+  let lu = {};
+  try { lu = JSON.parse(localStorage.getItem('micky_local_usage') || '{}'); } catch {}
+  const count = lu.m === m ? (lu.count || 0) : 0;
+  if ($('localCountLabel')) $('localCountLabel').textContent = `${count} (${m})`;
+}
+
+/* -------------------------------------------------------------
+   2. Presets & Compression Controls
+   ------------------------------------------------------------- */
+let activePreset = 'upload-ready';
+
+function setActivePresetButton(name) {
+  activePreset = name;
+  document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.preset === name);
+  });
+}
+
+$('presetUploadReady').onclick = () => {
+  const p = PRESETS['upload-ready'];
+  $('qRange').value = p.quality;
+  $('qVal').textContent = p.quality + '%';
+  $('maxEdge').value = p.maxEdge;
+  $('fmtSel').value = p.format;
+  $('maxKb').value = 0;
+  setActivePresetButton('upload-ready');
+};
+
+$('presetOriginal').onclick = () => {
+  $('maxEdge').value = 0;
+  setActivePresetButton('original');
+};
+
+$('presetCustom').onclick = () => setActivePresetButton('custom');
+
+['qRange', 'maxEdge', 'fmtSel', 'maxKb'].forEach(id => {
+  $(id).addEventListener('input', () => {
+    if (id === 'qRange') $('qVal').textContent = $('qRange').value + '%';
+    setActivePresetButton('custom');
+  });
+});
+
+function getOptions() {
+  const maxKb = parseInt($('maxKb').value, 10) || 0;
+  const opts = {
+    quality: parseInt($('qRange').value, 10) || 80,
+    maxEdge: Math.max(0, parseInt($('maxEdge').value, 10) || 0),
+    format: $('fmtSel').value,
+    maxOutputBytes: maxKb > 0 ? maxKb * 1024 : 0
+  };
+  if (activePreset === 'upload-ready' && maxKb === 0) {
+    opts.preset = 'upload-ready';
+  }
+  return opts;
+}
+
+/* -------------------------------------------------------------
+   3. Compression Execution (On-Device default, Explicit Cloud)
+   ------------------------------------------------------------- */
+async function readBlobDims(blob) {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const b = await createImageBitmap(blob);
+      const dims = { width: b.width, height: b.height };
+      b.close?.();
+      return dims;
+    } catch {}
+  }
+  return new Promise(resolve => {
+    const img = new Image();
+    const u = URL.createObjectURL(blob);
+    img.onload = () => {
+      URL.revokeObjectURL(u);
+      resolve({ width: img.naturalWidth || 0, height: img.naturalHeight || 0 });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(u);
+      resolve({ width: 0, height: 0 });
+    };
+    img.src = u;
+  });
+}
+
+async function compressViaCloudAPI(file, opts) {
+  const t0 = performance.now();
   const fd = new FormData();
   fd.append('file', file);
-  fd.append('quality', opts.quality);
+  fd.append('quality', String(opts.quality || 80));
 
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 90000);
@@ -187,60 +226,219 @@ async function compressViaCloudflareAPI(file, opts) {
   try {
     const res = await fetch('/api/compress', {
       method: 'POST',
-      headers: {
-        'x-admin-token': 'micky_auth_kpp_verified',
-        'x-api-key': DEFAULT_CLIENT_KEY
-      },
+      headers: { 'x-api-key': activeApiKey },
       body: fd,
       signal: ac.signal
     });
 
     if (!res.ok) {
-      let err = 'Compression failed';
+      let err = `Cloud error (HTTP ${res.status})`;
       try { const j = await res.json(); err = j.error || err; } catch {}
       throw new Error(err);
     }
 
-    const prov = res.headers.get('X-Provider') || 'Cloudflare API';
+    const provider = res.headers.get('X-Provider') || 'Cloud API';
     const blob = await res.blob();
-    fetchAdminStatus(); // Refresh admin usage numbers live
-    return { blob, provider: prov };
+    const mimeType = blob.type || res.headers.get('Content-Type') || 'image/jpeg';
+
+    let width = parseInt(res.headers.get('X-Output-Width') || '0', 10);
+    let height = parseInt(res.headers.get('X-Output-Height') || '0', 10);
+    if (!width || !height) {
+      const measured = await readBlobDims(blob);
+      width = measured.width;
+      height = measured.height;
+    }
+
+    const elapsedMs = Math.max(1, Math.round(performance.now() - t0));
+    verifyAndLoadStatus(activeApiKey);
+    return {
+      blob,
+      mimeType,
+      width,
+      height,
+      inputBytes: file.size,
+      outputBytes: blob.size,
+      elapsedMs,
+      provider
+    };
   } finally {
     clearTimeout(timer);
   }
 }
 
-// Master Compressor Router
-async function compressImage(file, opts) {
-  // If user is Admin and explicitly checked "Use TinyPNG Pool API"
-  if (isAdmin() && $('adminUseTinyPngCheckbox')?.checked) {
-    try {
-      return await compressViaCloudflareAPI(file, opts);
-    } catch (e) {
-      console.warn('TinyPNG failed, falling back to local canvas:', e);
-      return await compressInBrowser(file, opts);
-    }
+async function runCompression(file, opts) {
+  if (keyVerified && activeApiKey && $('useCloudCheckbox')?.checked) {
+    return await compressViaCloudAPI(file, opts);
   }
-  // Public visitors always use browser canvas (0 quota consumed!)
-  return await compressInBrowser(file, opts);
+  const res = await compressImage(file, opts);
+  incrementLocalUsage();
+  return { ...res, provider: 'On-Device Browser' };
 }
 
 /* -------------------------------------------------------------
-   3. File Upload, UI Controls & Cards Rendering
+   4. Sequential Queue, Cards, Memory Cleanup & Results UI
    ------------------------------------------------------------- */
 const Q = [];
-const totals = { count: 0, origSize: 0, compSize: 0 };
+const activeObjectUrls = new Set();
+const totals = { count: 0, failed: 0, origSize: 0, compSize: 0, batchElapsedMs: 0 };
 let isProcessing = false;
+let clearEpoch = 0;
 
-const getOptions = () => ({
-  quality: parseInt($('qRange').value, 10),
-  maxW: parseInt($('maxW').value, 10) || 0,
-  format: $('fmtSel').value
-});
+function trackUrl(url) {
+  activeObjectUrls.add(url);
+  return url;
+}
 
-$('qRange').oninput = () => $('qVal').textContent = $('qRange').value + '%';
+function releaseAllUrls() {
+  for (const u of activeObjectUrls) {
+    try { URL.revokeObjectURL(u); } catch {}
+  }
+  activeObjectUrls.clear();
+}
 
-// Select images button or studio frame triggers hidden input
+function updateSummary(batchTotalMs = totals.batchElapsedMs) {
+  const pct = totals.origSize ? Math.round((1 - totals.compSize / totals.origSize) * 100) : 0;
+  const failNote = totals.failed > 0 ? ` (${totals.failed} failed)` : '';
+  const timeNote = batchTotalMs > 0 ? ` • Batch time: ${fmtTime(batchTotalMs)}` : '';
+  $('summaryText').textContent =
+    `${totals.count} compressed${failNote}: ${fmt(totals.origSize)} → ${fmt(totals.compSize)}, saved ${pct}%${timeNote}`;
+}
+
+function createCardElement(file) {
+  const beforeUrl = trackUrl(URL.createObjectURL(file));
+  const card = document.createElement('div');
+  card.className = 'image-card';
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="card-title" title="${esc(file.name)}">${esc(file.name)}</div>
+      <span class="card-badge processing">Queued</span>
+    </div>
+    <div class="cmp">
+      <img src="${beforeUrl}" alt="Before">
+      <img class="aft" alt="After" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
+      <span class="cmp-label" style="left:8px">Before</span>
+      <span class="cmp-label" style="right:8px">After</span>
+      <i class="hd"></i>
+      <input type="range" min="0" max="100" value="50" aria-label="Compare before and after">
+    </div>
+    <div class="card-stats">
+      <span>Before: <b>${fmt(file.size)}</b></span>
+      <span class="after-size">After: <b>…</b></span>
+    </div>
+    <div class="card-metrics">
+      <span class="card-dims">Dimensions: —</span>
+      <span class="card-time">Time: —</span>
+    </div>
+    <div class="card-footer">
+      <span class="saving-tag">…</span>
+      <a class="btn-primary dl-btn" style="padding:6px 14px;font-size:13px" hidden>Download</a>
+    </div>
+    <div class="card-provider-note"></div>
+  `;
+  $('cardsGrid').prepend(card);
+  return card;
+}
+
+// Yield briefly to keep UI responsive between heavy items
+const nextTick = () => new Promise(r => setTimeout(r, 0));
+
+async function processQueue() {
+  if (isProcessing) return;
+  isProcessing = true;
+  const runEpoch = clearEpoch;
+  const runStart = performance.now();
+
+  try {
+    while (Q.length > 0) {
+      if (runEpoch !== clearEpoch) break;
+
+      const { file, el, opts } = Q.shift();
+      const badge = el.querySelector('.card-badge');
+      const aftImg = el.querySelector('.aft');
+      const aftSize = el.querySelector('.after-size b');
+      const dimsEl = el.querySelector('.card-dims');
+      const timeEl = el.querySelector('.card-time');
+      const savingTag = el.querySelector('.saving-tag');
+      const dlBtn = el.querySelector('.dl-btn');
+      const note = el.querySelector('.card-provider-note');
+
+      badge.textContent = 'Compressing…';
+      await nextTick();
+      if (runEpoch !== clearEpoch) break;
+
+      try {
+        const res = await runCompression(file, opts);
+        if (runEpoch !== clearEpoch) break;
+
+        const outUrl = trackUrl(URL.createObjectURL(res.blob));
+        aftImg.src = outUrl;
+        aftSize.textContent = fmt(res.outputBytes);
+
+        const ext = getExtensionForMimeType(res.mimeType);
+        dimsEl.textContent = `${res.width} × ${res.height} px • ${ext.toUpperCase()}`;
+        timeEl.textContent = `Time: ${fmtTime(res.elapsedMs)}`;
+
+        const diff = res.inputBytes - res.outputBytes;
+        const savedPercent = res.inputBytes > 0 ? Math.round((diff / res.inputBytes) * 100) : 0;
+        savingTag.textContent = savedPercent >= 0 ? `−${savedPercent}%` : `+${Math.abs(savedPercent)}%`;
+
+        badge.className = 'card-badge done';
+        badge.textContent = 'Ready';
+
+        dlBtn.hidden = false;
+        dlBtn.href = outUrl;
+        dlBtn.download = file.name.replace(/\.[^.]+$/, '') + '-compressed.' + ext;
+
+        note.textContent = `Engine: ${res.provider}`;
+
+        totals.count++;
+        totals.origSize += res.inputBytes;
+        totals.compSize += res.outputBytes;
+      } catch (err) {
+        if (runEpoch !== clearEpoch) break;
+        el.classList.add('card-error');
+        badge.className = 'card-badge error';
+        badge.textContent = 'Failed';
+        aftSize.textContent = '—';
+        dimsEl.textContent = 'Error';
+        timeEl.textContent = '—';
+        savingTag.textContent = '—';
+        note.classList.add('error-text');
+        note.textContent = err?.message || 'Failed to compress image.';
+        totals.failed++;
+      }
+
+      if (runEpoch === clearEpoch) {
+        updateSummary(totals.batchElapsedMs + (performance.now() - runStart));
+      }
+    }
+  } finally {
+    if (runEpoch === clearEpoch) {
+      totals.batchElapsedMs += performance.now() - runStart;
+      updateSummary(totals.batchElapsedMs);
+    }
+    isProcessing = false;
+  }
+}
+
+function handleFiles(files) {
+  const candidates = [...files].filter(
+    f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|gif|bmp)$/i.test(f.name)
+  );
+  if (!candidates.length) return;
+
+  const optsSnapshot = getOptions();
+  candidates.forEach(f => {
+    const el = createCardElement(f);
+    Q.push({ file: f, el, opts: optsSnapshot });
+  });
+  $('resultsSection').hidden = false;
+  processQueue();
+}
+
+/* -------------------------------------------------------------
+   5. Event Listeners
+   ------------------------------------------------------------- */
 $('selectBtn').onclick = (e) => { e.stopPropagation(); $('fileInput').click(); };
 $('dropArea').onclick = () => $('fileInput').click();
 $('fileInput').onchange = (e) => {
@@ -248,7 +446,6 @@ $('fileInput').onchange = (e) => {
   e.target.value = '';
 };
 
-// Drag and drop handlers
 const dropArea = $('dropArea');
 ['dragenter', 'dragover'].forEach(evt => {
   window.addEventListener(evt, (e) => {
@@ -268,103 +465,6 @@ window.addEventListener('drop', (e) => {
   }
 });
 
-function handleFiles(files) {
-  const imgFiles = [...files].filter(f => f.type.startsWith('image/'));
-  if (!imgFiles.length) return;
-  imgFiles.forEach(f => {
-    const cardEl = createCardElement(f);
-    Q.push({ file: f, el: cardEl });
-  });
-  $('resultsSection').hidden = false;
-  processQueue();
-}
-
-function createCardElement(file) {
-  const card = document.createElement('div');
-  card.className = 'image-card';
-  card.innerHTML = `
-    <div class="card-header">
-      <div class="card-title" title="${esc(file.name)}">${esc(file.name)}</div>
-      <span class="card-badge processing">Processing…</span>
-    </div>
-    <div class="cmp">
-      <img src="${URL.createObjectURL(file)}" alt="Before">
-      <img class="aft" alt="After" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
-      <span class="cmp-label" style="left:8px">Before</span>
-      <span class="cmp-label" style="right:8px">After</span>
-      <i class="hd"></i>
-      <input type="range" min="0" max="100" value="50" aria-label="Compare">
-    </div>
-    <div class="card-stats">
-      <span>Before: <b>${fmt(file.size)}</b></span>
-      <span class="after-size">After: <b>…</b></span>
-    </div>
-    <div class="card-footer">
-      <span class="saving-tag">…</span>
-      <a class="btn-primary dl-btn" style="padding:6px 14px;font-size:13px" hidden>Download</a>
-    </div>
-    <div class="card-provider-note"></div>
-  `;
-  $('cardsGrid').prepend(card);
-  return card;
-}
-
-function updateSummary() {
-  const pct = totals.origSize ? Math.round((1 - totals.compSize / totals.origSize) * 100) : 0;
-  $('summaryText').textContent = `${totals.count} image${totals.count > 1 ? 's' : ''} compressed: ${fmt(totals.origSize)} down to ${fmt(totals.compSize)}, saved ${pct}%`;
-}
-
-async function processQueue() {
-  if (isProcessing) return;
-  isProcessing = true;
-
-  while (Q.length > 0) {
-    const item = Q.shift();
-    const { file, el } = item;
-    const badge = el.querySelector('.card-badge');
-    const aftImg = el.querySelector('.aft');
-    const aftSize = el.querySelector('.after-size b');
-    const savingTag = el.querySelector('.saving-tag');
-    const dlBtn = el.querySelector('.dl-btn');
-    const note = el.querySelector('.card-provider-note');
-
-    try {
-      const res = await compressImage(file, getOptions());
-      const url = URL.createObjectURL(res.blob);
-
-      aftImg.src = url;
-      aftSize.textContent = fmt(res.blob.size);
-      
-      const savedPercent = Math.max(0, Math.round((1 - res.blob.size / file.size) * 100));
-      savingTag.textContent = `−${savedPercent}%`;
-      
-      badge.className = 'card-badge done';
-      badge.textContent = 'Ready';
-      
-      dlBtn.hidden = false;
-      dlBtn.href = url;
-      dlBtn.download = file.name.replace(/\.[^.]+$/, '') + '-compressed.' + (EXT[res.blob.type] || 'jpg');
-      
-      if (isAdmin()) {
-        note.textContent = `Processed via ${res.provider}`;
-      }
-
-      totals.count++;
-      totals.origSize += file.size;
-      totals.compSize += res.blob.size;
-      updateSummary();
-    } catch (err) {
-      badge.textContent = 'Failed';
-      badge.style.color = 'var(--red)';
-      savingTag.textContent = '—';
-      note.textContent = err.message;
-    }
-  }
-
-  isProcessing = false;
-}
-
-// Download All Button
 $('downloadAllBtn').onclick = () => {
   const btns = document.querySelectorAll('.dl-btn:not([hidden])');
   btns.forEach((btn, idx) => {
@@ -372,21 +472,30 @@ $('downloadAllBtn').onclick = () => {
   });
 };
 
-// Clear Results Button
 $('clearBtn').onclick = () => {
+  clearEpoch++;
+  Q.length = 0;
+  // Clear DOM image sources before revoking URLs to let browser release decoded buffers immediately
+  $('cardsGrid').querySelectorAll('img').forEach(img => { img.src = ''; });
   $('cardsGrid').innerHTML = '';
+  releaseAllUrls();
   totals.count = 0;
+  totals.failed = 0;
   totals.origSize = 0;
   totals.compSize = 0;
+  totals.batchElapsedMs = 0;
   $('resultsSection').hidden = true;
 };
 
-// Before / After Slider interaction
 $('cardsGrid').addEventListener('input', (e) => {
   if (e.target.matches('.cmp input')) {
     e.target.parentNode.style.setProperty('--p', e.target.value + '%');
   }
 });
 
-// Initial UI check
-updateAuthUI();
+// Initialize UI
+renderLocalUsage();
+updateEngineIndicator();
+if (activeApiKey) {
+  verifyAndLoadStatus(activeApiKey);
+}

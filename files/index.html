@@ -6,7 +6,7 @@
 <title>MICKY.PRESS — Instant Studio Image Compressor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
@@ -20,18 +20,18 @@
         </span>
         <span>MICKY<span class="brand-dot">.</span>PRESS</span>
       </a>
-      <div class="nav-pill">
+      <div class="nav-pill" id="enginePill">
         <span class="nav-pill-dot"></span>
-        <span>On-Device Engine</span>
+        <span id="enginePillText">On-Device Engine</span>
       </div>
     </div>
 
     <div class="nav-right">
-      <button class="btn-login" id="adminBtn" type="button">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-        <span id="adminBtnLabel">Admin Login</span>
+      <button class="btn-login" id="cloudBtn" type="button">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path></svg>
+        <span id="cloudBtnLabel">Cloud API</span>
       </button>
-      <button class="hamburger-btn" id="menuBtn" type="button" aria-label="Open menu">
+      <button class="hamburger-btn" id="menuBtn" type="button" aria-label="Open Cloud API Drawer">
         <span></span>
         <span></span>
         <span></span>
@@ -43,10 +43,10 @@
 <!-- Main Studio Workspace -->
 <main>
   <div class="hero-header">
-    <div class="hero-eyebrow">⚡ Zero Upload • Instant Compression • Unlimited</div>
+    <div class="hero-eyebrow">⚡ Zero Upload • Instant Compression • Private by Default</div>
     <h1 class="hero-title">Shrink images.<br>Keep every <mark>pixel</mark> crisp.</h1>
     <p class="hero-desc">
-      Drop your photos below to compress them instantly right inside your browser—private, lossless-feeling, and unlimited.
+      Drop your photos below to compress them right inside your browser—zero image bytes sent externally, sequential batching, and instant presets.
     </p>
   </div>
 
@@ -68,24 +68,37 @@
       </div>
     </div>
 
+    <!-- Preset Selector Strip -->
+    <div class="preset-strip">
+      <span class="preset-label">Presets:</span>
+      <button class="preset-btn active" id="presetUploadReady" type="button" data-preset="upload-ready">Ready for upload (1600px · WebP · 80%)</button>
+      <button class="preset-btn" id="presetOriginal" type="button" data-preset="original">Original dimensions</button>
+      <button class="preset-btn" id="presetCustom" type="button" data-preset="custom">Custom</button>
+    </div>
+
     <!-- Docked Controls -->
     <div class="controls-bar" id="controlsBar">
       <div class="control-item">
         <label for="qRange">Quality</label>
-        <input type="range" id="qRange" min="10" max="100" value="80" style="width:140px">
+        <input type="range" id="qRange" min="10" max="100" value="80" style="width:120px">
         <span class="control-badge" id="qVal">80%</span>
       </div>
       <div class="control-item">
-        <label for="maxW">Max Width (px)</label>
-        <input type="number" id="maxW" min="0" value="0" placeholder="0 = Original" style="width:110px">
+        <label for="maxEdge">Longest Edge (px)</label>
+        <input type="number" id="maxEdge" min="0" value="1600" placeholder="0 = Original" style="width:96px">
       </div>
       <div class="control-item">
-        <label for="fmtSel">Output Format</label>
+        <label for="fmtSel">Format</label>
         <select id="fmtSel">
           <option value="keep">Keep original</option>
           <option value="image/webp" selected>WebP (Smallest)</option>
           <option value="image/jpeg">JPEG</option>
+          <option value="image/png">PNG</option>
         </select>
+      </div>
+      <div class="control-item">
+        <label for="maxKb">Max Size (KB)</label>
+        <input type="number" id="maxKb" min="0" value="0" placeholder="0 = None" style="width:92px">
       </div>
     </div>
   </section>
@@ -108,118 +121,78 @@
   <p>MICKY.PRESS — Private Browser Compression Studio</p>
 </footer>
 
-<!-- Admin Login Modal -->
-<dialog class="login-modal" id="loginModal">
-  <div class="login-card">
-    <h3>Admin Access</h3>
-    <p>Sign in to view TinyPNG Pool quotas, ImageKit fallback status, and Client API keys.</p>
-    <div class="login-error" id="loginErr"></div>
-    <form id="loginForm">
-      <label>
-        Username
-        <input type="text" id="uname" autocomplete="username" placeholder="Username" required autofocus>
-      </label>
-      <label>
-        Password
-        <input type="password" id="pword" autocomplete="current-password" placeholder="Password" required>
-      </label>
-      <button type="submit" class="btn-primary" style="padding:11px;width:100%;justify-content:center;font-size:14px;margin-top:4px">Sign In</button>
-      <button type="button" class="btn-secondary" id="loginCancelBtn" style="width:100%">Cancel</button>
-    </form>
-  </div>
-</dialog>
-
-<!-- Admin Slide-Over Drawer -->
+<!-- Optional Cloud API Drawer (Zero hardcoded secrets) -->
 <div class="admin-drawer-backdrop" id="drawerBackdrop"></div>
-<aside class="admin-drawer" id="adminDrawer">
+<aside class="admin-drawer" id="cloudDrawer">
   <div class="drawer-header">
     <div class="drawer-title">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-      Admin Control Panel
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path></svg>
+      Optional Cloud API
     </div>
     <button class="btn-close" id="drawerCloseBtn" type="button" aria-label="Close drawer">✕</button>
   </div>
-  
+
   <div class="drawer-body">
-    <!-- Admin User Status -->
-    <div class="admin-box" style="display:flex;align-items:center;justify-content:space-between">
-      <div>
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted)">Signed in as</div>
-        <b style="font-size:16px;color:var(--ink)">Administrator (kpp)</b>
+    <!-- Privacy Notice -->
+    <div class="admin-box">
+      <div class="admin-box-title">On-Device Default (Private)</div>
+      <small style="font-size:12px;color:var(--ink-soft);display:block;line-height:1.45">
+        Ordinary compression runs locally in your browser via <code>compress.js</code> and sends zero image bytes to any external server. Cloud providers (TinyPNG / ImageKit) only activate if you enter an authorized API key and explicitly enable Cloud Upload below.
+      </small>
+      <div style="margin-top:8px;font-size:13px;display:flex;justify-content:space-between">
+        <b style="color:var(--accent-dark)">Local processed this month:</b>
+        <span id="localCountLabel" style="font-weight:700">0</span>
       </div>
-      <button class="btn-sm" id="logoutBtn" type="button" style="background:#fee2e2;color:#b91c1c">Logout</button>
     </div>
 
-    <!-- Admin Compression Mode Switch -->
+    <!-- API Key Entry (No hardcoded key!) -->
     <div class="admin-box">
-      <div class="admin-box-title">Admin Compression Mode</div>
+      <div class="admin-box-title">Cloud API Authorization</div>
+      <small style="font-size:12px;color:var(--ink-soft)">Enter your Worker <code>x-api-key</code> to inspect pool quotas or run an explicit cloud compression:</small>
+      <form id="apiKeyForm" class="key-input-row">
+        <input type="password" id="apiKeyInput" placeholder="Enter x-api-key…" autocomplete="off">
+        <button type="submit" class="btn-sm" id="connectKeyBtn">Verify</button>
+        <button type="button" class="btn-sm" id="clearKeyBtn" style="background:#fee2e2;color:#b91c1c">Clear</button>
+      </form>
+      <div id="apiKeyMsg" class="status-msg" hidden></div>
+    </div>
+
+    <!-- Explicit Cloud Action Toggle -->
+    <div class="admin-box">
+      <div class="admin-box-title">Explicit Cloud Upload Mode</div>
       <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer">
-        <input type="checkbox" id="adminUseTinyPngCheckbox" style="width:18px;height:18px;accent-color:var(--ink)">
-        <span>Use <b>TinyPNG Pool API</b> for my browser compressions (Unchecked = Instant Browser Canvas)</span>
+        <input type="checkbox" id="useCloudCheckbox" style="width:18px;height:18px;accent-color:var(--ink)" disabled>
+        <span>Send selected images to <b>Cloud API (/api/compress)</b> instead of local browser engine</span>
       </label>
+      <small style="font-size:12px;color:var(--ink-soft);display:block;margin-top:6px">
+        Requires a verified <code>x-api-key</code> above. Uncheck at any time to keep 100% of compression on your device.
+      </small>
     </div>
 
-    <!-- 1. TinyPNG Pool (3 Keys) Live Status -->
-    <div class="admin-box">
-      <div class="admin-box-title">1. TinyPNG Pool (3 Keys)</div>
+    <!-- Pool Status (populated only from authenticated Worker /api/status) -->
+    <div class="admin-box" id="poolStatusBox" hidden>
+      <div class="admin-box-title">TinyPNG Pool &amp; ImageKit Status</div>
       <div style="display:flex;justify-content:space-between;font-size:13px">
-        <span id="tinypngStatusBadge" style="color:var(--accent-dark);font-weight:700">Active</span>
-        <span id="tinypngUsageCount" style="font-weight:700">0 of 1425 used</span>
+        <span id="tinypngStatusBadge" style="color:var(--accent-dark);font-weight:700">—</span>
+        <span id="tinypngUsageCount" style="font-weight:700">—</span>
       </div>
       <div class="admin-meter">
         <span class="admin-meter-fill" id="tinypngMeterFill" style="width:0%"></span>
       </div>
-      <small style="font-size:12px;color:var(--ink-soft);display:block;line-height:1.45">
-        • Capacity: 3 keys × 475 = 1,425 images/month<br>
-        • Automatically rotates to the next key at 475 compressions<br>
-        • Resets automatically to 0 on the 1st of every month
-      </small>
+      <small id="poolDetailsText" style="font-size:12px;color:var(--ink-soft);display:block;line-height:1.45"></small>
     </div>
 
-    <!-- 2. ImageKit Direct Fallback -->
+    <!-- API Integration Example (placeholder only) -->
     <div class="admin-box">
-      <div class="admin-box-title">2. ImageKit Fallback (Direct)</div>
-      <div style="font-size:13px;display:flex;justify-content:space-between">
-        <b style="color:var(--accent-dark)">Configured &amp; Ready</b>
-        <span style="font-weight:700">20 GB / month</span>
-      </div>
-      <small style="font-size:12px;color:var(--ink-soft);display:block;margin-top:6px;line-height:1.45">
-        • Activates automatically if all 3 TinyPNG keys reach 475<br>
-        • Zero-retention: temporary image deleted from ImageKit immediately after compression
-      </small>
-    </div>
-
-    <!-- 3. Browser Canvas (Public Mode) -->
-    <div class="admin-box">
-      <div class="admin-box-title">3. Browser Canvas (Offline)</div>
-      <div style="font-size:13px;display:flex;justify-content:space-between">
-        <b style="color:var(--accent-dark)">Active for Public Visitors</b>
-        <span id="localCountLabel" style="font-weight:700">0 processed</span>
-      </div>
-      <small style="font-size:12px;color:var(--ink-soft);display:block;margin-top:6px">
-        Public users compress images locally on their device so your TinyPNG &amp; ImageKit credits are preserved 100% for you!
-      </small>
-    </div>
-
-    <!-- 4. Client API Key Section -->
-    <div class="admin-box">
-      <div class="admin-box-title">Client API Key (For Other Websites)</div>
-      <small style="font-size:12px;color:var(--ink-soft)">Pass this key in the <code>x-api-key</code> header from your external client websites to use TinyPNG and ImageKit remotely:</small>
-      <div class="key-display">
-        <code id="clientApiKey">micky_compressor_live_secret123</code>
-        <button class="btn-sm" id="copyKeyBtn" type="button">Copy</button>
-      </div>
-      <div style="margin-top:12px">
-        <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:4px">Client cURL Example:</div>
-        <pre style="background:#0e1015;color:#c8ff29;padding:10px;border-radius:8px;font-size:11px;overflow-x:auto"><code>curl -X POST https://micky-compressor.moganjana711.workers.dev/api/compress \
-  -H "x-api-key: micky_compressor_live_secret123" \
+      <div class="admin-box-title">External Client cURL Example</div>
+      <pre style="background:#0e1015;color:#c8ff29;padding:10px;border-radius:8px;font-size:11px;overflow-x:auto"><code>curl -X POST https://micky-compressor.moganjana711.workers.dev/api/compress \
+  -H "x-api-key: YOUR_CLIENT_API_KEY" \
   -F "file=@photo.jpg" \
-  --output photo-min.jpg</code></pre>
-      </div>
+  --output photo-min.webp</code></pre>
     </div>
   </div>
 </aside>
 
-<script src="script.js?v=4"></script>
+<script type="module" src="script.js?v=5"></script>
 </body>
 </html>
