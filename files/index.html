@@ -6,7 +6,7 @@
 <title>MICKY.PRESS — Instant Studio Image Compressor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 
@@ -80,12 +80,12 @@
     <div class="controls-bar" id="controlsBar">
       <div class="control-item">
         <label for="qRange">Quality</label>
-        <input type="range" id="qRange" min="10" max="100" value="80" style="width:120px">
+        <input type="range" id="qRange" min="10" max="100" value="80" style="width:110px">
         <span class="control-badge" id="qVal">80%</span>
       </div>
       <div class="control-item">
         <label for="maxEdge">Longest Edge (px)</label>
-        <input type="number" id="maxEdge" min="0" value="1600" placeholder="0 = Original" style="width:96px">
+        <input type="number" id="maxEdge" min="0" value="1600" placeholder="0 = Original" style="width:86px">
       </div>
       <div class="control-item">
         <label for="fmtSel">Format</label>
@@ -98,7 +98,7 @@
       </div>
       <div class="control-item">
         <label for="maxKb">Max Size (KB)</label>
-        <input type="number" id="maxKb" min="0" value="0" placeholder="0 = None" style="width:92px">
+        <input type="number" id="maxKb" min="0" value="0" placeholder="0 = None" style="width:80px">
       </div>
     </div>
   </section>
@@ -152,7 +152,7 @@
       <form id="apiKeyForm" class="key-input-row">
         <input type="password" id="apiKeyInput" placeholder="Enter x-api-key…" autocomplete="off">
         <button type="submit" class="btn-sm" id="connectKeyBtn">Verify</button>
-        <button type="button" class="btn-sm" id="clearKeyBtn" style="background:#fee2e2;color:#b91c1c">Clear</button>
+        <button type="button" class="btn-sm btn-sm-muted" id="clearKeyBtn">Clear</button>
       </form>
       <div id="apiKeyMsg" class="status-msg" hidden></div>
     </div>
@@ -185,7 +185,7 @@
     <!-- API Integration Example (placeholder only) -->
     <div class="admin-box">
       <div class="admin-box-title">External Client cURL Example</div>
-      <pre style="background:#0e1015;color:#c8ff29;padding:10px;border-radius:8px;font-size:11px;overflow-x:auto"><code>curl -X POST https://micky-compressor.moganjana711.workers.dev/api/compress \
+      <pre class="curl-code-block"><code>curl -X POST https://micky-compressor.moganjana711.workers.dev/api/compress \
   -H "x-api-key: YOUR_CLIENT_API_KEY" \
   -F "file=@photo.jpg" \
   --output photo-min.webp</code></pre>
@@ -193,6 +193,6 @@
   </div>
 </aside>
 
-<script type="module" src="script.js?v=5"></script>
+<script type="module" src="script.js?v=6"></script>
 </body>
 </html>
